@@ -120,13 +120,12 @@ async function refreshAllData() {
 
   try {
     setStatus("Loading your GHIN profile...");
-    const [scoresResult, golferResult, golfersResult] = await Promise.allSettled([
+    const [scoresResult, golferResult] = await Promise.allSettled([
       fetchScores(session.golferId),
       ghinFetch(
         `${API_BASE}/golfers/search.json?per_page=1&page=1&golfer_id=${encodeURIComponent(session.golferId)}`,
         "profile lookup",
       ),
-      fetchGolfers(),
     ]);
 
     if (golferResult.status !== "fulfilled") {
@@ -141,10 +140,7 @@ async function refreshAllData() {
     const golferPayload = golferResult.value;
 
     session.scores = extractScores(scoresPayload);
-    session.golfers =
-      golfersResult.status === "fulfilled" && Array.isArray(golfersResult.value.golfers)
-        ? golfersResult.value.golfers
-        : [];
+    session.golfers = [];
     const selfGolfer =
       (Array.isArray(golferPayload.golfers) && golferPayload.golfers[0]) ||
       scoresPayload.golfer ||
@@ -154,7 +150,8 @@ async function refreshAllData() {
     renderTrendChart(session.scores);
     renderScoresTable(session.scores);
     renderMembersTable();
-    setStatus("");
+    setStatus("Loading member list...");
+    void refreshMemberList();
   } catch (error) {
     elements.statGrid.innerHTML = `
       <article class="stat-card">
@@ -435,12 +432,24 @@ async function fetchScores(golferId) {
 }
 
 async function fetchGolfers() {
-  setStatus("Loading member list...");
   const primaryUrl = `${API_BASE}/golfers.json?per_page=200&page=1`;
   try {
     return await ghinFetch(primaryUrl, "member list");
   } catch (error) {
     return { golfers: [] };
+  }
+}
+
+async function refreshMemberList() {
+  try {
+    const golfersPayload = await withTimeout(fetchGolfers(), 8000, "member list");
+    session.golfers = Array.isArray(golfersPayload.golfers) ? golfersPayload.golfers : [];
+    renderMembersTable();
+    setStatus("");
+  } catch (error) {
+    session.golfers = [];
+    renderMembersTable();
+    setStatus("Member list unavailable right now");
   }
 }
 
@@ -510,6 +519,24 @@ async function fetchJson(url, options = {}) {
   } finally {
     window.clearTimeout(timeoutId);
   }
+}
+
+function withTimeout(promise, timeoutMs, label) {
+  return new Promise((resolve, reject) => {
+    const timeoutId = window.setTimeout(() => {
+      reject(new Error(`${label} timed out after ${timeoutMs / 1000} seconds`));
+    }, timeoutMs);
+
+    promise
+      .then((value) => {
+        window.clearTimeout(timeoutId);
+        resolve(value);
+      })
+      .catch((error) => {
+        window.clearTimeout(timeoutId);
+        reject(error);
+      });
+  });
 }
 
 function setStatus(message) {
