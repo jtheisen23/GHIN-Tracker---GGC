@@ -1,5 +1,6 @@
 const LOGIN_URL = "https://api2.ghin.com/api/v1/golfer_login.json";
 const API_BASE = "https://api.ghin.com/api/v1";
+const REQUEST_TIMEOUT_MS = 15000;
 
 const session = {
   token: "",
@@ -47,6 +48,7 @@ async function handleLogin(event) {
   }
 
   setLoginBusy(true, "Connecting...");
+  elements.loginStatus.textContent = "Signing in...";
 
   try {
     const payload = {
@@ -91,15 +93,19 @@ async function handleLogin(event) {
     elements.accountChip.textContent = session.golferName;
     elements.loginScreen.classList.add("hidden");
     elements.appShell.classList.remove("hidden");
-    await refreshAllData();
     elements.loginStatus.textContent = "";
+    setLoginBusy(false, "Connect GHIN");
+    refreshAllData();
+    return;
   } catch (error) {
     elements.loginStatus.textContent = error.message;
     if (!session.token) {
       logout(false);
     }
   } finally {
-    setLoginBusy(false, "Connect GHIN");
+    if (!session.token) {
+      setLoginBusy(false, "Connect GHIN");
+    }
   }
 }
 
@@ -110,18 +116,35 @@ async function refreshAllData() {
 
   elements.refreshButton.disabled = true;
   elements.refreshButton.textContent = "Refreshing...";
+  setStatus("Loading GHIN data...");
 
   try {
-    const [scoresPayload, golferPayload, golfersPayload] = await Promise.all([
+    setStatus("Loading your GHIN profile...");
+    const [scoresResult, golferResult, golfersResult] = await Promise.allSettled([
       fetchScores(session.golferId),
       ghinFetch(
         `${API_BASE}/golfers/search.json?per_page=1&page=1&golfer_id=${encodeURIComponent(session.golferId)}`,
+        "profile lookup",
       ),
-      ghinFetch(`${API_BASE}/golfers.json?per_page=200&page=1`),
+      fetchGolfers(),
     ]);
 
+    if (golferResult.status !== "fulfilled") {
+      throw golferResult.reason;
+    }
+
+    if (scoresResult.status !== "fulfilled") {
+      throw scoresResult.reason;
+    }
+
+    const scoresPayload = scoresResult.value;
+    const golferPayload = golferResult.value;
+
     session.scores = extractScores(scoresPayload);
-    session.golfers = Array.isArray(golfersPayload.golfers) ? golfersPayload.golfers : [];
+    session.golfers =
+      golfersResult.status === "fulfilled" && Array.isArray(golfersResult.value.golfers)
+        ? golfersResult.value.golfers
+        : [];
     const selfGolfer =
       (Array.isArray(golferPayload.golfers) && golferPayload.golfers[0]) ||
       scoresPayload.golfer ||
@@ -131,6 +154,7 @@ async function refreshAllData() {
     renderTrendChart(session.scores);
     renderScoresTable(session.scores);
     renderMembersTable();
+    setStatus("");
   } catch (error) {
     elements.statGrid.innerHTML = `
       <article class="stat-card">
@@ -149,7 +173,7 @@ async function refreshAllData() {
         <p>${escapeHtml(error.message)}</p>
       </div>
     `;
-    elements.loginStatus.textContent = error.message;
+    setStatus(error.message);
   } finally {
     elements.refreshButton.disabled = false;
     elements.refreshButton.textContent = "Refresh";
@@ -384,27 +408,71 @@ function buildPolyline(series, color, inner, plotWidth, plotHeight, min, max) {
   `;
 }
 
-async function ghinFetch(url) {
+async function ghinFetch(url, label = "GHIN request") {
   if (!session.token) {
     throw new Error("No GHIN token is available.");
   }
 
-  return fetchJson(url, {
-    headers: {
-      Accept: "application/json",
-      Authorization: `Bearer ${session.token}`,
-    },
-  });
+  return ghinFetchWithFallback(url, label);
 }
 
 async function fetchScores(golferId) {
-  const searchUrl = `${API_BASE}/scores/search.json?per_page=100&page=1&golfer_id=${encodeURIComponent(golferId)}`;
+  setStatus("Loading score history...");
+  const today = new Date();
+  const from = new Date(today);
+  from.setFullYear(today.getFullYear() - 3);
+  const searchUrl =
+    `${API_BASE}/scores/search.json?per_page=100&page=1` +
+    `&golfer_id=${encodeURIComponent(golferId)}` +
+    `&from_date_played=${formatApiDate(from)}` +
+    `&to_date_played=${formatApiDate(today)}`;
   try {
-    return await ghinFetch(searchUrl);
+    return await ghinFetch(searchUrl, "score history");
   } catch (error) {
     const fallbackUrl = `${API_BASE}/golfers/${encodeURIComponent(golferId)}/scores.json?per_page=100&page=1`;
-    return ghinFetch(fallbackUrl);
+    return ghinFetch(fallbackUrl, "score history fallback");
   }
+}
+
+async function fetchGolfers() {
+  setStatus("Loading member list...");
+  const primaryUrl = `${API_BASE}/golfers.json?per_page=200&page=1`;
+  try {
+    return await ghinFetch(primaryUrl, "member list");
+  } catch (error) {
+    return { golfers: [] };
+  }
+}
+
+async function ghinFetchWithFallback(url, label = "GHIN request") {
+  const attempts = [
+    {
+      name: "Bearer",
+      headers: {
+        Accept: "application/json",
+        Authorization: `Bearer ${session.token}`,
+      },
+    },
+    {
+      name: "Token",
+      headers: {
+        Accept: "application/json",
+        Authorization: `Token token="${session.token}"`,
+      },
+    },
+  ];
+
+  let lastError = null;
+
+  for (const attempt of attempts) {
+    try {
+      return await fetchJson(url, { headers: attempt.headers });
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  throw new Error(`${label}: ${lastError?.message || "Request failed"}`);
 }
 
 function extractScores(payload) {
@@ -418,19 +486,34 @@ function extractScores(payload) {
 }
 
 async function fetchJson(url, options = {}) {
-  const response = await fetch(url, options);
-  const isJson = response.headers.get("content-type")?.includes("application/json");
-  const payload = isJson ? await response.json() : await response.text();
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    const response = await fetch(url, { ...options, signal: controller.signal });
+    const isJson = response.headers.get("content-type")?.includes("application/json");
+    const payload = isJson ? await response.json() : await response.text();
 
-  if (!response.ok) {
-    const message =
-      typeof payload === "object" && payload
-        ? payload.message || payload.error || `Request failed with ${response.status}`
-        : `Request failed with ${response.status}`;
-    throw new Error(message);
+    if (!response.ok) {
+      const message =
+        typeof payload === "object" && payload
+          ? payload.message || payload.error || `Request to ${url} failed with ${response.status}`
+          : `Request to ${url} failed with ${response.status}`;
+      throw new Error(message);
+    }
+
+    return payload;
+  } catch (error) {
+    if (error?.name === "AbortError") {
+      throw new Error(`Request to ${url} timed out after ${REQUEST_TIMEOUT_MS / 1000} seconds`);
+    }
+    throw error;
+  } finally {
+    window.clearTimeout(timeoutId);
   }
+}
 
-  return payload;
+function setStatus(message) {
+  elements.loginStatus.textContent = message;
 }
 
 function formatDate(value) {
@@ -446,6 +529,10 @@ function formatDate(value) {
     day: "numeric",
     year: "numeric",
   });
+}
+
+function formatApiDate(value) {
+  return value.toISOString().slice(0, 10);
 }
 
 function average(values) {
