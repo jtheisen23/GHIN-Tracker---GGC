@@ -1,273 +1,263 @@
-const STORAGE_KEY = "ggc-handicap-tracker-v1";
+const LOGIN_URL = "https://api2.ghin.com/api/v1/golfer_login.json";
+const API_BASE = "https://api.ghin.com/api/v1";
 
-const defaultState = {
-  course: {
-    name: "GGC",
-    teeName: "Member Tees",
-    rating: 71.2,
-    slope: 129,
-    par: 72,
-  },
-  players: [],
-  rounds: [],
+const session = {
+  token: "",
+  golferId: "",
+  golferName: "",
+  scores: [],
+  golfers: [],
 };
-
-const state = loadState();
 
 const elements = {
-  courseForm: document.querySelector("#courseForm"),
-  playerForm: document.querySelector("#playerForm"),
-  roundForm: document.querySelector("#roundForm"),
-  bulkImportForm: document.querySelector("#bulkImportForm"),
-  roundPlayerSelect: document.querySelector("#roundPlayerSelect"),
-  bulkImportPlayerSelect: document.querySelector("#bulkImportPlayerSelect"),
-  playerCards: document.querySelector("#playerCards"),
-  roundTableBody: document.querySelector("#roundTableBody"),
+  loginScreen: document.querySelector("#loginScreen"),
+  appShell: document.querySelector("#appShell"),
+  loginForm: document.querySelector("#loginForm"),
+  loginButton: document.querySelector("#loginButton"),
+  loginStatus: document.querySelector("#loginStatus"),
+  accountChip: document.querySelector("#accountChip"),
+  refreshButton: document.querySelector("#refreshButton"),
+  logoutButton: document.querySelector("#logoutButton"),
+  statGrid: document.querySelector("#statGrid"),
   trendChart: document.querySelector("#trendChart"),
-  metricSelect: document.querySelector("#metricSelect"),
-  exportButton: document.querySelector("#exportButton"),
-  importInput: document.querySelector("#importInput"),
-  seedDataButton: document.querySelector("#seedDataButton"),
+  scoresTableBody: document.querySelector("#scoresTableBody"),
+  membersTableBody: document.querySelector("#membersTableBody"),
+  memberSearch: document.querySelector("#memberSearch"),
   emptyStateTemplate: document.querySelector("#emptyStateTemplate"),
-  heroPlayers: document.querySelector("#heroPlayers"),
-  heroRounds: document.querySelector("#heroRounds"),
-  heroCourse: document.querySelector("#heroCourse"),
-  bulkImportStatus: document.querySelector("#bulkImportStatus"),
 };
 
-hydrateForms();
 bindEvents();
-render();
-
-function loadState() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) {
-      return structuredClone(defaultState);
-    }
-    const parsed = JSON.parse(raw);
-    return {
-      course: { ...defaultState.course, ...parsed.course },
-      players: Array.isArray(parsed.players) ? parsed.players : [],
-      rounds: Array.isArray(parsed.rounds) ? parsed.rounds : [],
-    };
-  } catch {
-    return structuredClone(defaultState);
-  }
-}
-
-function saveState() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-}
 
 function bindEvents() {
-  elements.courseForm.addEventListener("submit", handleCourseSubmit);
-  elements.playerForm.addEventListener("submit", handlePlayerSubmit);
-  elements.roundForm.addEventListener("submit", handleRoundSubmit);
-  elements.bulkImportForm.addEventListener("submit", handleBulkImportSubmit);
-  elements.metricSelect.addEventListener("change", renderTrendChart);
-  elements.exportButton.addEventListener("click", exportData);
-  elements.importInput.addEventListener("change", importData);
-  elements.seedDataButton.addEventListener("click", seedSampleData);
+  elements.loginForm.addEventListener("submit", handleLogin);
+  elements.refreshButton.addEventListener("click", refreshAllData);
+  elements.logoutButton.addEventListener("click", logout);
+  elements.memberSearch.addEventListener("input", renderMembersTable);
 }
 
-function hydrateForms() {
-  getField(elements.courseForm, "name").value = state.course.name;
-  getField(elements.courseForm, "teeName").value = state.course.teeName;
-  getField(elements.courseForm, "rating").value = state.course.rating;
-  getField(elements.courseForm, "slope").value = state.course.slope;
-  getField(elements.courseForm, "par").value = state.course.par;
-  getField(elements.roundForm, "date").value = new Date().toISOString().slice(0, 10);
-  syncRoundDefaults();
-}
-
-function syncRoundDefaults() {
-  getField(elements.roundForm, "rating").value = state.course.rating;
-  getField(elements.roundForm, "slope").value = state.course.slope;
-  getField(elements.roundForm, "par").value = state.course.par;
-  getField(elements.bulkImportForm, "rating").value = state.course.rating;
-  getField(elements.bulkImportForm, "slope").value = state.course.slope;
-  getField(elements.bulkImportForm, "par").value = state.course.par;
-  getField(elements.bulkImportForm, "pcc").value = 0;
-}
-
-function handleCourseSubmit(event) {
+async function handleLogin(event) {
   event.preventDefault();
   const formData = new FormData(event.currentTarget);
-  state.course = {
-    name: formData.get("name").toString().trim(),
-    teeName: formData.get("teeName").toString().trim(),
-    rating: Number(formData.get("rating")),
-    slope: Number(formData.get("slope")),
-    par: Number(formData.get("par")),
-  };
-  saveState();
-  syncRoundDefaults();
-  render();
-}
+  const username = formData.get("username").toString().trim();
+  const password = formData.get("password").toString();
 
-function handlePlayerSubmit(event) {
-  event.preventDefault();
-  const formData = new FormData(event.currentTarget);
-  const name = formData.get("name").toString().trim();
-  if (!name) {
+  if (!username || !password) {
+    elements.loginStatus.textContent = "Enter your GHIN number or email and password.";
     return;
   }
-  state.players.push({
-    id: crypto.randomUUID(),
-    name,
-    color: formData.get("color").toString(),
-    createdAt: new Date().toISOString(),
-  });
-  saveState();
-  event.currentTarget.reset();
-  getField(event.currentTarget, "color").value = "#0f766e";
-  render();
-}
 
-function handleRoundSubmit(event) {
-  event.preventDefault();
-  const formData = new FormData(event.currentTarget);
-  state.rounds.push(
-    createRoundRecord({
-      playerId: formData.get("playerId").toString(),
-      date: formData.get("date").toString(),
-      score: Number(formData.get("score")),
-      rating: Number(formData.get("rating")),
-      slope: Number(formData.get("slope")),
-      par: Number(formData.get("par")),
-      pcc: Number(formData.get("pcc") || 0),
-      notes: formData.get("notes").toString().trim(),
-    }),
-  );
-  persistRounds();
-  event.currentTarget.reset();
-  getField(event.currentTarget, "date").value = new Date().toISOString().slice(0, 10);
-  syncRoundDefaults();
-  render();
-}
-
-function handleBulkImportSubmit(event) {
-  event.preventDefault();
-  const formData = new FormData(event.currentTarget);
-  const defaults = {
-    playerId: formData.get("playerId").toString(),
-    rating: Number(formData.get("rating")),
-    slope: Number(formData.get("slope")),
-    par: Number(formData.get("par")),
-    pcc: Number(formData.get("pcc") || 0),
-  };
-  const rawRounds = formData.get("rawRounds").toString();
+  setLoginBusy(true, "Connecting...");
 
   try {
-    const importedRounds = parseBulkRounds(rawRounds, defaults);
-    state.rounds.push(...importedRounds);
-    persistRounds();
-    getField(event.currentTarget, "rawRounds").value = "";
-    elements.bulkImportStatus.textContent = `${importedRounds.length} rounds imported successfully.`;
-    render();
+    const payload = {
+      user: {
+        email_or_ghin: username,
+        password,
+        remember_me: "true",
+      },
+      token: "browser",
+    };
+
+    const data = await fetchJson(LOGIN_URL, {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json; charset=utf-8",
+      },
+      body: JSON.stringify(payload),
+    });
+
+    const golferUser = data.golfer_user;
+    if (!golferUser || !golferUser.golfer_user_token) {
+      throw new Error("GHIN login did not return a session token.");
+    }
+
+    session.token = golferUser.golfer_user_token;
+    session.golferId =
+      golferUser.ghin_number ||
+      golferUser.golfer_id ||
+      golferUser.id ||
+      (golferUser.golfers && golferUser.golfers[0] && golferUser.golfers[0].ghin_number) ||
+      "";
+    session.golferName =
+      [golferUser.first_name, golferUser.last_name].filter(Boolean).join(" ") ||
+      (golferUser.golfers && golferUser.golfers[0] && golferUser.golfers[0].player_name) ||
+      username;
+
+    if (!session.golferId) {
+      throw new Error("Could not determine your GHIN player id from the login response.");
+    }
+
+    elements.accountChip.textContent = session.golferName;
+    elements.loginScreen.classList.add("hidden");
+    elements.appShell.classList.remove("hidden");
+    await refreshAllData();
+    elements.loginStatus.textContent = "";
   } catch (error) {
-    elements.bulkImportStatus.textContent = error.message;
+    elements.loginStatus.textContent = error.message;
+    logout(false);
+  } finally {
+    setLoginBusy(false, "Connect GHIN");
   }
 }
 
-function render() {
-  renderHero();
-  renderPlayerOptions();
-  renderPlayerCards();
-  renderRoundsTable();
-  renderTrendChart();
-}
-
-function renderHero() {
-  elements.heroPlayers.textContent = state.players.length;
-  elements.heroRounds.textContent = state.rounds.length;
-  elements.heroCourse.textContent = state.course.name || "GGC";
-}
-
-function renderPlayerOptions() {
-  if (!state.players.length) {
-    elements.roundPlayerSelect.innerHTML = '<option value="">Add a player first</option>';
-    elements.bulkImportPlayerSelect.innerHTML = '<option value="">Add a player first</option>';
+async function refreshAllData() {
+  if (!session.token || !session.golferId) {
     return;
   }
 
-  const options = state.players
-    .map((player) => `<option value="${player.id}">${player.name}</option>`)
-    .join("");
-  elements.roundPlayerSelect.innerHTML = options;
-  elements.bulkImportPlayerSelect.innerHTML = options;
+  elements.refreshButton.disabled = true;
+  elements.refreshButton.textContent = "Refreshing...";
+
+  try {
+    const [scoresPayload, golferPayload, golfersPayload] = await Promise.all([
+      ghinFetch(`${API_BASE}/golfers/${encodeURIComponent(session.golferId)}/scores.json?per_page=100&page=1`),
+      ghinFetch(
+        `${API_BASE}/golfers/search.json?per_page=1&page=1&golfer_id=${encodeURIComponent(session.golferId)}`,
+      ),
+      ghinFetch(`${API_BASE}/golfers.json?per_page=200&page=1`),
+    ]);
+
+    session.scores = Array.isArray(scoresPayload.scores) ? scoresPayload.scores : [];
+    session.golfers = Array.isArray(golfersPayload.golfers) ? golfersPayload.golfers : [];
+    const selfGolfer =
+      (Array.isArray(golferPayload.golfers) && golferPayload.golfers[0]) ||
+      scoresPayload.golfer ||
+      null;
+
+    renderStats(selfGolfer, session.scores);
+    renderTrendChart(session.scores);
+    renderScoresTable(session.scores);
+    renderMembersTable();
+  } catch (error) {
+    elements.statGrid.innerHTML = `
+      <article class="stat-card">
+        <div class="stat-label">Load Error</div>
+        <div class="stat-value">--</div>
+        <div class="stat-sub">${escapeHtml(error.message)}</div>
+      </article>
+    `;
+    elements.scoresTableBody.innerHTML = "";
+    elements.scoresTableBody.appendChild(elements.emptyStateTemplate.content.cloneNode(true));
+    elements.membersTableBody.innerHTML = "";
+    elements.membersTableBody.appendChild(elements.emptyStateTemplate.content.cloneNode(true));
+    elements.trendChart.innerHTML = `
+      <div class="empty-state">
+        <h3>GHIN request failed</h3>
+        <p>${escapeHtml(error.message)}</p>
+      </div>
+    `;
+  } finally {
+    elements.refreshButton.disabled = false;
+    elements.refreshButton.textContent = "Refresh";
+  }
 }
 
-function renderPlayerCards() {
-  if (!state.players.length) {
-    elements.playerCards.innerHTML = "";
-    elements.playerCards.appendChild(elements.emptyStateTemplate.content.cloneNode(true));
+function logout(resetForm = true) {
+  session.token = "";
+  session.golferId = "";
+  session.golferName = "";
+  session.scores = [];
+  session.golfers = [];
+  elements.appShell.classList.add("hidden");
+  elements.loginScreen.classList.remove("hidden");
+  elements.accountChip.textContent = "Not connected";
+  if (resetForm) {
+    elements.loginForm.reset();
+  }
+}
+
+function setLoginBusy(isBusy, label) {
+  elements.loginButton.disabled = isBusy;
+  elements.loginButton.textContent = label;
+}
+
+function renderStats(golfer, scores) {
+  const handicap = golfer?.handicap_index ?? golfer?.display ?? "--";
+  const trend = Number(golfer?.trend ?? 0);
+  const lowIndex = golfer?.low_handicap_index ?? golfer?.low_hi_display ?? "--";
+  const scoringAverage = scores.length
+    ? average(
+        scores
+          .map((score) => Number(score.adjusted_gross_score ?? score.gross_score))
+          .filter(Number.isFinite),
+      ).toFixed(1)
+    : "--";
+
+  elements.statGrid.innerHTML = `
+    <article class="stat-card">
+      <div class="stat-label">Handicap Index</div>
+      <div class="stat-value">${escapeHtml(String(handicap))}</div>
+      <div class="stat-sub">${formatTrend(trend)}</div>
+    </article>
+    <article class="stat-card">
+      <div class="stat-label">Low Index</div>
+      <div class="stat-value">${escapeHtml(String(lowIndex))}</div>
+      <div class="stat-sub">GHIN profile low</div>
+    </article>
+    <article class="stat-card">
+      <div class="stat-label">Rounds Loaded</div>
+      <div class="stat-value">${scores.length}</div>
+      <div class="stat-sub">Latest 100 rounds request</div>
+    </article>
+    <article class="stat-card">
+      <div class="stat-label">Average Score</div>
+      <div class="stat-value">${scoringAverage}</div>
+      <div class="stat-sub">Adjusted gross average</div>
+    </article>
+  `;
+}
+
+function renderScoresTable(scores) {
+  if (!scores.length) {
+    elements.scoresTableBody.innerHTML = "";
+    elements.scoresTableBody.appendChild(elements.emptyStateTemplate.content.cloneNode(true));
     return;
   }
 
-  elements.playerCards.innerHTML = state.players
-    .map((player) => {
-      const rounds = getRoundsForPlayer(player.id);
-      const latestRound = rounds.at(-1);
-      const index = calculateHandicapIndex(rounds);
-      const courseHandicap = calculateCourseHandicap(index, state.course);
-      const scoringAverage = rounds.length
-        ? average(rounds.map((round) => round.score)).toFixed(1)
-        : "--";
-      const bestDifferential = rounds.length
-        ? Math.min(...rounds.map((round) => calculateDifferential(round))).toFixed(1)
-        : "--";
-
+  elements.scoresTableBody.innerHTML = scores
+    .map((score) => {
+      const playedAt = score.played_at || score.score_day_1 || score.date_played || "";
+      const courseName = score.course_name || score.facility_name || "Unknown";
+      const teeName = score.tee_name || "—";
+      const gross = score.adjusted_gross_score || score.gross_score || "—";
+      const differential =
+        score.differential !== null && score.differential !== undefined
+          ? Number(score.differential).toFixed(1)
+          : "—";
+      const type = score.score_type || score.type || "—";
       return `
-        <article class="player-card" style="--player-color: ${player.color}">
-          <h3>${player.name}</h3>
-          <div class="metric-row">
-            <span class="metric-label">Handicap Index</span>
-            <span class="metric-value">${formatNumber(index)}</span>
-          </div>
-          <div class="metric-row">
-            <span class="metric-label">Course Handicap</span>
-            <span class="metric-value">${formatNumber(courseHandicap, 0)}</span>
-          </div>
-          <div class="metric-row">
-            <span class="metric-label">Scoring Average</span>
-            <span class="metric-value">${scoringAverage}</span>
-          </div>
-          <div class="metric-row">
-            <span class="metric-label">Best Differential</span>
-            <span class="metric-value">${bestDifferential}</span>
-          </div>
-          <div class="metric-row">
-            <span class="metric-label">Last Round</span>
-            <span class="metric-value">${latestRound ? `${latestRound.score} on ${formatDate(latestRound.date)}` : "No rounds"}</span>
-          </div>
-        </article>
+        <tr>
+          <td>${escapeHtml(formatDate(playedAt))}</td>
+          <td>${escapeHtml(courseName)}</td>
+          <td>${escapeHtml(teeName)}</td>
+          <td>${escapeHtml(String(gross))}</td>
+          <td><span class="pill">${escapeHtml(String(differential))}</span></td>
+          <td>${escapeHtml(type)}</td>
+        </tr>
       `;
     })
     .join("");
 }
 
-function renderRoundsTable() {
-  const enrichedRounds = [...state.rounds]
-    .sort((a, b) => new Date(b.date) - new Date(a.date))
-    .slice(0, 18)
-    .map((round) => {
-      const player = state.players.find((entry) => entry.id === round.playerId);
-      return {
-        ...round,
-        playerName: player ? player.name : "Unknown",
-        differential: calculateDifferential(round),
-      };
-    });
+function renderMembersTable() {
+  const query = elements.memberSearch.value.trim().toLowerCase();
+  const filtered = session.golfers.filter((golfer) => {
+    if (!query) {
+      return true;
+    }
+    const name = `${golfer.first_name || ""} ${golfer.last_name || ""}`.trim().toLowerCase();
+    const ghin = String(golfer.ghin_number || golfer.id || "").toLowerCase();
+    return name.includes(query) || ghin.includes(query);
+  });
 
-  if (!enrichedRounds.length) {
-    elements.roundTableBody.innerHTML = `
+  if (!filtered.length) {
+    elements.membersTableBody.innerHTML = `
       <tr>
-        <td colspan="6">
+        <td colspan="5">
           <div class="empty-state">
-            <h3>No rounds yet</h3>
-            <p>Use the score form above to start building your history.</p>
+            <h3>No matching golfers</h3>
+            <p>Try a different search or refresh your GHIN session.</p>
           </div>
         </td>
       </tr>
@@ -275,238 +265,163 @@ function renderRoundsTable() {
     return;
   }
 
-  elements.roundTableBody.innerHTML = enrichedRounds
-    .map(
-      (round) => `
+  elements.membersTableBody.innerHTML = filtered
+    .map((golfer) => {
+      const name = `${golfer.first_name || ""} ${golfer.last_name || ""}`.trim() || golfer.player_name || "Unknown";
+      const index = golfer.handicap_index ?? golfer.display ?? "—";
+      return `
         <tr>
-          <td>${formatDate(round.date)}</td>
-          <td>${round.playerName}</td>
-          <td>${round.score}</td>
-          <td>${formatToPar(round.score - round.par)}</td>
-          <td>${formatNumber(round.differential)}</td>
-          <td>${round.notes || "—"}</td>
+          <td>${escapeHtml(name)}</td>
+          <td>${escapeHtml(String(golfer.ghin_number || golfer.id || "—"))}</td>
+          <td><span class="pill">${escapeHtml(String(index))}</span></td>
+          <td>${formatTrend(Number(golfer.trend ?? 0))}</td>
+          <td>${escapeHtml(golfer.club_name || golfer.golf_association_name || "—")}</td>
         </tr>
-      `,
-    )
+      `;
+    })
     .join("");
 }
 
-function renderTrendChart() {
-  const metric = elements.metricSelect.value;
-  const series = state.players
-    .map((player) => ({
-      player,
-      values: buildSeriesForMetric(player.id, metric),
+function renderTrendChart(scores) {
+  const differentials = scores
+    .slice()
+    .reverse()
+    .map((score) => ({
+      label: formatDate(score.played_at || score.score_day_1 || score.date_played || ""),
+      value: Number(score.differential),
     }))
-    .filter((entry) => entry.values.length >= 2);
+    .filter((entry) => Number.isFinite(entry.value));
 
-  if (!series.length) {
-    elements.trendChart.innerHTML = "";
-    elements.trendChart.appendChild(elements.emptyStateTemplate.content.cloneNode(true));
+  if (!differentials.length) {
+    elements.trendChart.innerHTML = `
+      <div class="empty-state">
+        <h3>No differential history</h3>
+        <p>GHIN did not return differential values for this session.</p>
+      </div>
+    `;
     return;
   }
 
-  const allValues = series.flatMap((entry) => entry.values.map((point) => point.value));
-  const minValue = Math.min(...allValues);
-  const maxValue = Math.max(...allValues);
-  const padding = minValue === maxValue ? 1 : (maxValue - minValue) * 0.15;
-  const chartMin = minValue - padding;
-  const chartMax = maxValue + padding;
+  const indexSeries = differentials.map((_, index) => {
+    const window = differentials.slice(Math.max(0, index - 19), index + 1).map((entry) => entry.value);
+    const best = window.slice().sort((a, b) => a - b).slice(0, Math.min(8, window.length));
+    return {
+      label: differentials[index].label,
+      value: Number((average(best) * 0.96).toFixed(1)),
+    };
+  });
+
+  const combined = [...differentials.map((item) => item.value), ...indexSeries.map((item) => item.value)];
+  const min = Math.min(...combined);
+  const max = Math.max(...combined);
+  const padding = min === max ? 1 : (max - min) * 0.15;
+  const chartMin = min - padding;
+  const chartMax = max + padding;
   const width = 980;
-  const height = 360;
-  const inner = { left: 48, right: 16, top: 18, bottom: 38 };
+  const height = 340;
+  const inner = { left: 48, right: 16, top: 18, bottom: 36 };
   const plotWidth = width - inner.left - inner.right;
   const plotHeight = height - inner.top - inner.bottom;
 
-  const svgLines = [];
+  const lines = [
+    buildPolyline(differentials, "#c9a84c", inner, plotWidth, plotHeight, chartMin, chartMax),
+    buildPolyline(indexSeries, "#2d6a4f", inner, plotWidth, plotHeight, chartMin, chartMax),
+  ];
 
-  for (const entry of series) {
-    const points = entry.values.map((point, index) => {
-      const x = inner.left + (index / Math.max(entry.values.length - 1, 1)) * plotWidth;
-      const y = inner.top + (1 - (point.value - chartMin) / (chartMax - chartMin || 1)) * plotHeight;
-      return { x, y, label: point.label, value: point.value };
-    });
-
-    svgLines.push(`
-      <polyline
-        fill="none"
-        stroke="${entry.player.color}"
-        stroke-width="3"
-        points="${points.map((point) => `${point.x},${point.y}`).join(" ")}"
-        stroke-linecap="round"
-        stroke-linejoin="round"
-      />
-    `);
-
-    svgLines.push(
-      ...points.map(
-        (point) => `
-          <circle cx="${point.x}" cy="${point.y}" r="4.5" fill="${entry.player.color}">
-            <title>${entry.player.name}: ${formatNumber(point.value)} on ${point.label}</title>
-          </circle>
-        `,
-      ),
-    );
-  }
-
-  const yTicks = Array.from({ length: 5 }, (_, index) => {
+  const ticks = Array.from({ length: 5 }, (_, index) => {
     const value = chartMin + ((chartMax - chartMin) / 4) * index;
     const y = inner.top + (1 - index / 4) * plotHeight;
     return `
       <g>
-        <line x1="${inner.left}" x2="${width - inner.right}" y1="${y}" y2="${y}" stroke="rgba(31, 41, 55, 0.12)" />
-        <text x="8" y="${y + 4}" font-size="12" fill="#6b7280">${formatNumber(value)}</text>
+        <line x1="${inner.left}" x2="${width - inner.right}" y1="${y}" y2="${y}" stroke="rgba(26,58,42,0.12)" />
+        <text x="8" y="${y + 4}" font-size="12" fill="#677162">${value.toFixed(1)}</text>
       </g>
     `;
-  });
+  }).join("");
 
   elements.trendChart.innerHTML = `
     <div class="chart-shell">
-      <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${metric} trend chart">
-        ${yTicks.join("")}
-        ${svgLines.join("")}
+      <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="GHIN trend chart">
+        ${ticks}
+        ${lines.join("")}
       </svg>
-      <div class="chart-legend">
-        ${series
-          .map(
-            (entry) => `
-              <div class="legend-item">
-                <span class="legend-chip" style="background:${entry.player.color}"></span>
-                <span>${entry.player.name}</span>
-              </div>
-            `,
-          )
-          .join("")}
+      <div class="form-row">
+        <span class="pill">Gold: score differential</span>
+        <span class="pill">Green: estimated handicap trend</span>
       </div>
     </div>
   `;
 }
 
-function buildSeriesForMetric(playerId, metric) {
-  const rounds = getRoundsForPlayer(playerId);
-  if (!rounds.length) {
-    return [];
+function buildPolyline(series, color, inner, plotWidth, plotHeight, min, max) {
+  const points = series.map((item, index) => {
+    const x = inner.left + (index / Math.max(series.length - 1, 1)) * plotWidth;
+    const y = inner.top + (1 - (item.value - min) / (max - min || 1)) * plotHeight;
+    return { ...item, x, y };
+  });
+
+  return `
+    <polyline
+      fill="none"
+      stroke="${color}"
+      stroke-width="3"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      points="${points.map((point) => `${point.x},${point.y}`).join(" ")}"
+    />
+    ${points
+      .map(
+        (point) => `
+          <circle cx="${point.x}" cy="${point.y}" r="4" fill="${color}">
+            <title>${point.label}: ${point.value.toFixed(1)}</title>
+          </circle>
+        `,
+      )
+      .join("")}
+  `;
+}
+
+async function ghinFetch(url) {
+  if (!session.token) {
+    throw new Error("No GHIN token is available.");
   }
 
-  if (metric === "score") {
-    return rounds.map((round) => ({
-      label: formatDate(round.date),
-      value: round.score,
-    }));
-  }
-
-  if (metric === "differential") {
-    return rounds.map((round) => ({
-      label: formatDate(round.date),
-      value: calculateDifferential(round),
-    }));
-  }
-
-  return rounds.map((round, index) => {
-    const indexValue = calculateHandicapIndex(rounds.slice(0, index + 1));
-    return {
-      label: formatDate(round.date),
-      value: Number.isFinite(indexValue) ? indexValue : 0,
-    };
+  return fetchJson(url, {
+    headers: {
+      Accept: "application/json",
+      Authorization: `Bearer ${session.token}`,
+    },
   });
 }
 
-function getRoundsForPlayer(playerId) {
-  return state.rounds
-    .filter((round) => round.playerId === playerId)
-    .sort((a, b) => new Date(a.date) - new Date(b.date));
-}
+async function fetchJson(url, options = {}) {
+  const response = await fetch(url, options);
+  const isJson = response.headers.get("content-type")?.includes("application/json");
+  const payload = isJson ? await response.json() : await response.text();
 
-function calculateDifferential(round) {
-  const value = (113 / round.slope) * (round.score - round.rating - round.pcc);
-  return Number(value.toFixed(1));
-}
-
-function calculateHandicapIndex(rounds) {
-  if (!rounds.length) {
-    return NaN;
-  }
-  const recentRounds = [...rounds].sort((a, b) => new Date(b.date) - new Date(a.date)).slice(0, 20);
-  const differentials = recentRounds.map(calculateDifferential).sort((a, b) => a - b);
-  const count = Math.min(8, differentials.length);
-  return Number(average(differentials.slice(0, count)).toFixed(1));
-}
-
-function calculateCourseHandicap(index, course) {
-  if (!Number.isFinite(index)) {
-    return NaN;
-  }
-  return Math.round(index * (course.slope / 113) + (course.rating - course.par));
-}
-
-function createRoundRecord(round) {
-  return {
-    id: crypto.randomUUID(),
-    playerId: round.playerId,
-    date: round.date,
-    score: round.score,
-    rating: round.rating,
-    slope: round.slope,
-    par: round.par,
-    pcc: round.pcc,
-    notes: round.notes || "",
-    courseName: state.course.name,
-    teeName: state.course.teeName,
-    createdAt: new Date().toISOString(),
-  };
-}
-
-function persistRounds() {
-  state.rounds.sort((a, b) => new Date(a.date) - new Date(b.date));
-  saveState();
-}
-
-function parseBulkRounds(rawText, defaults) {
-  const lines = rawText
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean);
-
-  if (!lines.length) {
-    throw new Error("Paste at least one round to import.");
+  if (!response.ok) {
+    const message =
+      typeof payload === "object" && payload
+        ? payload.message || payload.error || `Request failed with ${response.status}`
+        : `Request failed with ${response.status}`;
+    throw new Error(message);
   }
 
-  return lines.map((line, index) => {
-    const parts = line
-      .split(/\s*[\t|,]\s*/)
-      .map((part) => part.trim())
-      .filter(Boolean);
+  return payload;
+}
 
-    if (parts.length < 2) {
-      throw new Error(`Line ${index + 1} needs at least a date and score.`);
-    }
-
-    const date = normalizeDate(parts[0]);
-    const score = Number(parts[1]);
-    const rating = parts[2] ? Number(parts[2]) : defaults.rating;
-    const slope = parts[3] ? Number(parts[3]) : defaults.slope;
-    const par = parts[4] ? Number(parts[4]) : defaults.par;
-    const pcc = parts[5] ? Number(parts[5]) : defaults.pcc;
-    const notes = parts.slice(6).join(", ");
-
-    if (!date) {
-      throw new Error(`Line ${index + 1} has an invalid date. Use YYYY-MM-DD or MM/DD/YYYY.`);
-    }
-
-    if (![score, rating, slope, par, pcc].every(Number.isFinite)) {
-      throw new Error(`Line ${index + 1} has an invalid numeric value.`);
-    }
-
-    return createRoundRecord({
-      playerId: defaults.playerId,
-      date,
-      score,
-      rating,
-      slope,
-      par,
-      pcc,
-      notes,
-    });
+function formatDate(value) {
+  if (!value) {
+    return "—";
+  }
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return value;
+  }
+  return parsed.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
   });
 }
 
@@ -514,140 +429,21 @@ function average(values) {
   return values.reduce((sum, value) => sum + value, 0) / values.length;
 }
 
-function getField(form, name) {
-  return form.elements.namedItem(name);
-}
-
-function formatDate(dateString) {
-  return new Date(`${dateString}T12:00:00`).toLocaleDateString(undefined, {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
-}
-
-function formatNumber(value, digits = 1) {
-  return Number.isFinite(value) ? value.toFixed(digits) : "--";
-}
-
-function formatToPar(delta) {
-  if (delta === 0) {
-    return "E";
+function formatTrend(value) {
+  if (!Number.isFinite(value) || value === 0) {
+    return '<span>Flat</span>';
   }
-  return delta > 0 ? `+${delta}` : `${delta}`;
+  if (value > 0) {
+    return `<span class="trend-up">Up ${value.toFixed(1)}</span>`;
+  }
+  return `<span class="trend-down">Down ${Math.abs(value).toFixed(1)}</span>`;
 }
 
-function normalizeDate(value) {
-  const isoMatch = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (isoMatch) {
-    return value;
-  }
-
-  const slashMatch = value.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
-  if (!slashMatch) {
-    return "";
-  }
-
-  const month = slashMatch[1].padStart(2, "0");
-  const day = slashMatch[2].padStart(2, "0");
-  const rawYear = slashMatch[3];
-  const year = rawYear.length === 2 ? `20${rawYear}` : rawYear;
-  return `${year}-${month}-${day}`;
-}
-
-function exportData() {
-  const blob = new Blob([JSON.stringify(state, null, 2)], { type: "application/json" });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = "ggc-handicap-data.json";
-  link.click();
-  URL.revokeObjectURL(url);
-}
-
-function importData(event) {
-  const [file] = event.target.files;
-  if (!file) {
-    return;
-  }
-
-  file
-    .text()
-    .then((text) => JSON.parse(text))
-    .then((payload) => {
-      state.course = { ...defaultState.course, ...payload.course };
-      state.players = Array.isArray(payload.players) ? payload.players : [];
-      state.rounds = Array.isArray(payload.rounds) ? payload.rounds : [];
-      saveState();
-      hydrateForms();
-      render();
-    })
-    .catch(() => {
-      window.alert("That file could not be imported. Please choose a valid JSON export.");
-    })
-    .finally(() => {
-      event.target.value = "";
-    });
-}
-
-function seedSampleData() {
-  if (state.players.length || state.rounds.length) {
-    const shouldReplace = window.confirm(
-      "Sample data will replace the current local data in this browser. Continue?",
-    );
-    if (!shouldReplace) {
-      return;
-    }
-  }
-
-  state.course = {
-    name: "GGC",
-    teeName: "Blue Tees",
-    rating: 71.8,
-    slope: 131,
-    par: 72,
-  };
-
-  const players = [
-    { id: crypto.randomUUID(), name: "Jeremy", color: "#0f766e" },
-    { id: crypto.randomUUID(), name: "Matt", color: "#b45309" },
-    { id: crypto.randomUUID(), name: "Chris", color: "#2563eb" },
-  ];
-
-  state.players = players.map((player) => ({
-    ...player,
-    createdAt: new Date().toISOString(),
-  }));
-
-  state.rounds = [
-    ["2026-03-01", 88, 0, "Scrappy front, solid finish"],
-    ["2026-03-08", 85, 0, "Best driving day of the month"],
-    ["2026-03-15", 84, 1, "Rain and soft greens"],
-    ["2026-03-22", 82, 0, "Three birdies"],
-    ["2026-03-29", 81, 0, "New personal best at GGC"],
-  ].flatMap((template, index) => {
-    return players.map((player, playerIndex) => {
-      const offsets = [0, 6, 10];
-      const base = template[1];
-      return {
-        id: crypto.randomUUID(),
-        playerId: player.id,
-        date: template[0],
-        score: base + offsets[playerIndex] - (index > 2 && playerIndex === 2 ? 2 : 0),
-        rating: 71.8,
-        slope: 131,
-        par: 72,
-        pcc: template[2],
-        notes: typeof template[3] === "string" ? template[3] : "",
-        courseName: "GGC",
-        teeName: "Blue Tees",
-        createdAt: new Date().toISOString(),
-      };
-    });
-  });
-
-  saveState();
-  hydrateForms();
-  render();
-  elements.bulkImportStatus.textContent = "Sample data loaded.";
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
 }

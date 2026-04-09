@@ -3,249 +3,80 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>GGC Handicap Tracker</title>
+    <title>GHIN Tracker | GGC</title>
     <meta
       name="description"
-      content="Track golf scores, handicap index trends, and player performance for your golf group."
+      content="Unofficial GHIN-connected dashboard for GGC scores, handicap trends, and club lookups."
     />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Manrope:wght@400;500;600;700&display=swap"
+      href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Serif+Display:ital@0;1&display=swap"
       rel="stylesheet"
     />
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
-    <div class="page-shell">
-      <header class="hero">
-        <div class="hero-copy">
-          <p class="eyebrow">GitHub Pages Golf Dashboard</p>
-          <h1>Track scores, handicap index, and player trends in one place.</h1>
-          <p class="hero-text">
-            Built for your golf group with GHIN-style handicap differential math,
-            home course settings, and quick trend views for every player.
-          </p>
-          <div class="hero-actions">
-            <button class="button primary" id="seedDataButton">Load sample league</button>
-            <button class="button ghost" id="exportButton">Export data</button>
-            <label class="button ghost file-button">
-              Import data
-              <input type="file" id="importInput" accept="application/json" />
-            </label>
-          </div>
-          <p class="helper-text">
-            Note: This tracker uses handicap differential formulas similar to GHIN,
-            but it is not an official GHIN-connected service.
-          </p>
+    <div id="loginScreen" class="login-screen">
+      <section class="login-card">
+        <p class="eyebrow">GGC Browser Dashboard</p>
+        <h1>Sign in with GHIN</h1>
+        <p class="intro-text">
+          This version runs entirely in the browser and uses unofficial GHIN app-style
+          endpoints. Your login is used only for live requests in this session.
+        </p>
+        <div class="warning-box">
+          This is not an official GHIN integration. GHIN may change or block these
+          endpoints at any time.
         </div>
-        <div class="hero-panel">
-          <div class="stat-card">
-            <span class="stat-label">Players</span>
-            <strong id="heroPlayers">0</strong>
+        <form id="loginForm" class="stack-form">
+          <label>
+            GHIN number or email
+            <input type="text" name="username" autocomplete="username" required />
+          </label>
+          <label>
+            Password
+            <input type="password" name="password" autocomplete="current-password" required />
+          </label>
+          <div class="form-row">
+            <button type="submit" class="button primary" id="loginButton">Connect GHIN</button>
+            <p class="status-text" id="loginStatus" aria-live="polite"></p>
           </div>
-          <div class="stat-card">
-            <span class="stat-label">Rounds Logged</span>
-            <strong id="heroRounds">0</strong>
-          </div>
-          <div class="stat-card">
-            <span class="stat-label">Course</span>
-            <strong id="heroCourse">GGC</strong>
-          </div>
+        </form>
+      </section>
+    </div>
+
+    <div id="appShell" class="app-shell hidden">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Live GHIN Session</p>
+          <h2>GHIN Tracker for GGC</h2>
+        </div>
+        <div class="topbar-actions">
+          <div class="account-chip" id="accountChip">Not connected</div>
+          <button class="button ghost" id="refreshButton">Refresh</button>
+          <button class="button ghost" id="logoutButton">Log out</button>
         </div>
       </header>
 
-      <main class="layout-grid">
-        <section class="panel">
-          <div class="section-heading">
-            <div>
-              <p class="eyebrow">Course Setup</p>
-              <h2>Home course details</h2>
-            </div>
-          </div>
-          <form id="courseForm" class="form-grid">
-            <label>
-              Course name
-              <input type="text" name="name" placeholder="GGC" required />
-            </label>
-            <label>
-              Tee name
-              <input type="text" name="teeName" placeholder="Member Tees" required />
-            </label>
-            <label>
-              Course rating
-              <input type="number" name="rating" step="0.1" min="50" max="90" required />
-            </label>
-            <label>
-              Slope rating
-              <input type="number" name="slope" min="55" max="155" required />
-            </label>
-            <label>
-              Par
-              <input type="number" name="par" min="54" max="76" required />
-            </label>
-            <div class="form-actions span-all">
-              <button type="submit" class="button primary">Save course settings</button>
-            </div>
-          </form>
-        </section>
+      <main class="page-shell">
+        <section class="stats-grid" id="statGrid"></section>
 
         <section class="panel">
           <div class="section-heading">
             <div>
-              <p class="eyebrow">Player Setup</p>
-              <h2>Add a golfer</h2>
+              <p class="eyebrow">Trend View</p>
+              <h3>Handicap and differential history</h3>
             </div>
-          </div>
-          <form id="playerForm" class="form-grid">
-            <label>
-              Player name
-              <input type="text" name="name" placeholder="Jeremy" required />
-            </label>
-            <label>
-              Accent color
-              <input type="color" name="color" value="#0f766e" />
-            </label>
-            <div class="form-actions span-all">
-              <button type="submit" class="button primary">Add player</button>
-            </div>
-          </form>
-        </section>
-
-        <section class="panel span-two">
-          <div class="section-heading">
-            <div>
-              <p class="eyebrow">Bulk Import</p>
-              <h2>Paste GHIN-style history</h2>
-            </div>
-          </div>
-          <form id="bulkImportForm" class="form-grid">
-            <label>
-              Player
-              <select name="playerId" id="bulkImportPlayerSelect" required></select>
-            </label>
-            <label>
-              Default course rating
-              <input type="number" name="rating" step="0.1" min="50" max="90" required />
-            </label>
-            <label>
-              Default slope rating
-              <input type="number" name="slope" min="55" max="155" required />
-            </label>
-            <label>
-              Default par
-              <input type="number" name="par" min="54" max="76" required />
-            </label>
-            <label>
-              Default PCC
-              <input type="number" name="pcc" min="-3" max="3" step="1" value="0" />
-            </label>
-            <div class="import-help span-all">
-              <p>
-                Paste one round per line in one of these formats:
-                <code>2026-04-01, 84</code> or
-                <code>2026-04-01, 84, 71.8, 131, 72, 0, windy day</code>.
-              </p>
-              <p>
-                Commas, tabs, or pipes all work. Missing rating, slope, par, and
-                PCC values will fall back to the defaults above.
-              </p>
-            </div>
-            <label class="span-all">
-              Pasted rounds
-              <textarea
-                name="rawRounds"
-                rows="8"
-                placeholder="2026-04-01, 84, 71.8, 131, 72, 0, windy day&#10;2026-04-08, 82, 71.8, 131, 72"
-                required
-              ></textarea>
-            </label>
-            <div class="form-actions span-all">
-              <button type="submit" class="button primary">Import pasted rounds</button>
-              <p class="status-text" id="bulkImportStatus" aria-live="polite"></p>
-            </div>
-          </form>
-        </section>
-
-        <section class="panel span-two">
-          <div class="section-heading">
-            <div>
-              <p class="eyebrow">Round Entry</p>
-              <h2>Log a score</h2>
-            </div>
-          </div>
-          <form id="roundForm" class="form-grid">
-            <label>
-              Date
-              <input type="date" name="date" required />
-            </label>
-            <label>
-              Player
-              <select name="playerId" id="roundPlayerSelect" required></select>
-            </label>
-            <label>
-              Adjusted gross score
-              <input type="number" name="score" min="45" max="160" required />
-            </label>
-            <label>
-              Course rating
-              <input type="number" name="rating" step="0.1" min="50" max="90" required />
-            </label>
-            <label>
-              Slope rating
-              <input type="number" name="slope" min="55" max="155" required />
-            </label>
-            <label>
-              Par
-              <input type="number" name="par" min="54" max="76" required />
-            </label>
-            <label>
-              PCC adjustment
-              <input type="number" name="pcc" min="-3" max="3" step="1" value="0" />
-            </label>
-            <label class="span-all">
-              Notes
-              <input type="text" name="notes" placeholder="Windy back nine, birdied 18..." />
-            </label>
-            <div class="form-actions span-all">
-              <button type="submit" class="button primary">Save round</button>
-            </div>
-          </form>
-        </section>
-
-        <section class="panel span-two">
-          <div class="section-heading">
-            <div>
-              <p class="eyebrow">Dashboard</p>
-              <h2>Player snapshots</h2>
-            </div>
-          </div>
-          <div id="playerCards" class="player-card-grid"></div>
-        </section>
-
-        <section class="panel span-two">
-          <div class="section-heading">
-            <div>
-              <p class="eyebrow">Trend Map</p>
-              <h2>How each player is moving</h2>
-            </div>
-            <label class="inline-select">
-              Metric
-              <select id="metricSelect">
-                <option value="score">Score</option>
-                <option value="differential">Differential</option>
-                <option value="index">Handicap Index</option>
-              </select>
-            </label>
           </div>
           <div id="trendChart" class="trend-chart"></div>
         </section>
 
-        <section class="panel span-two">
+        <section class="panel">
           <div class="section-heading">
             <div>
-              <p class="eyebrow">Recent Rounds</p>
-              <h2>Latest score entries</h2>
+              <p class="eyebrow">Score History</p>
+              <h3>Recent rounds</h3>
             </div>
           </div>
           <div class="table-wrap">
@@ -253,14 +84,38 @@
               <thead>
                 <tr>
                   <th>Date</th>
-                  <th>Player</th>
+                  <th>Course</th>
+                  <th>Tees</th>
                   <th>Score</th>
-                  <th>To Par</th>
                   <th>Differential</th>
-                  <th>Notes</th>
+                  <th>Type</th>
                 </tr>
               </thead>
-              <tbody id="roundTableBody"></tbody>
+              <tbody id="scoresTableBody"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Club Lookup</p>
+              <h3>Members you can access</h3>
+            </div>
+            <input type="search" id="memberSearch" class="search-input" placeholder="Search by name or GHIN #" />
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>GHIN #</th>
+                  <th>Index</th>
+                  <th>Trend</th>
+                  <th>Club</th>
+                </tr>
+              </thead>
+              <tbody id="membersTableBody"></tbody>
             </table>
           </div>
         </section>
@@ -268,10 +123,14 @@
     </div>
 
     <template id="emptyStateTemplate">
-      <div class="empty-state">
-        <h3>Nothing here yet</h3>
-        <p>Add players and rounds to see handicap trends and score history.</p>
-      </div>
+      <tr>
+        <td colspan="6">
+          <div class="empty-state">
+            <h3>No data</h3>
+            <p>Connect GHIN and refresh to load your current records.</p>
+          </div>
+        </td>
+      </tr>
     </template>
 
     <script src="./app.js"></script>

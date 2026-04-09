@@ -1,65 +1,56 @@
-# GGC Handicap Tracker
+# GHIN Tracker for GGC
 
-Static golf tracker built for GitHub Pages. It lets you:
+Static browser dashboard for GHIN login, score history, handicap trend viewing, and club member lookup.
 
-- track players and rounds
-- estimate handicap index from recent score differentials
-- calculate course handicap from your home course setup
-- visualize score, differential, and index trends
-- export and import data as JSON
-- bulk import pasted round history from GHIN-style text or spreadsheet rows
+## What it does
 
-## Important note
+- signs in with your GHIN login from the browser
+- requests your recent scores from GHIN-style endpoints
+- shows an estimated handicap trend line from returned differentials
+- shows golfers available through your GHIN-accessible lookup results
 
-This project does **not** connect directly to the GHIN app or GHIN services. It uses a GHIN-style handicap differential approach for personal tracking. If you want official GHIN data sync later, we would need an approved API or a manual import workflow from data you export yourself.
+## Important warning
 
-## Bulk import from GHIN or a spreadsheet
+This project uses unofficial GHIN app-style API endpoints from browser code.
 
-You can now paste multiple rounds at once into the site.
+That means:
 
-Accepted examples:
+- this is not an official GHIN or USGA integration
+- GHIN can change or block these endpoints at any time
+- your GHIN login flow is happening in the browser
+- this is simpler to host on GitHub Pages, but less secure and less reliable than a server-backed app
 
-```text
-2026-04-01, 84
-2026-04-08, 82, 71.8, 131, 72, 0, windy day
-04/15/2026, 86, 71.8, 131, 72
-```
+## Known endpoint pattern used here
 
-Format:
-
-- column 1: date
-- column 2: score
-- column 3: course rating, optional
-- column 4: slope rating, optional
-- column 5: par, optional
-- column 6: PCC, optional
-- column 7+: notes, optional
-
-Commas, tabs, and `|` separators all work.
+- login: `https://api2.ghin.com/api/v1/golfer_login.json`
+- data: `https://api.ghin.com/api/v1/...`
 
 ## Run locally
 
-Because this is a plain static site, you can open `index.html` directly in a browser or serve it locally:
+You can open `index.html` directly or run:
 
 ```bash
 python3 -m http.server 8080
 ```
 
-Then visit `http://localhost:8080`.
+Then visit:
+
+```text
+http://127.0.0.1:8080
+```
 
 ## Deploy to GitHub Pages
 
-1. Create a GitHub repository.
-2. Push these files to the default branch.
-3. In GitHub, open `Settings` > `Pages`.
-4. Set the source to `Deploy from a branch`.
-5. Choose your branch and the `/ (root)` folder.
-6. Save, then wait for the Pages URL to be published.
+1. Push `index.html`, `styles.css`, and `app.js` to your repo.
+2. Open the repository `Settings`.
+3. Open `Pages`.
+4. Choose `Deploy from a branch`.
+5. Select `main` and `/ (root)`.
+6. Save.
 
-## Next good upgrades
+## Residual risks
 
-- manual hole-by-hole entry and ESC/net double bogey adjustment
-- player edit/delete controls
-- multi-course support with saved tee sets
-- CSV import if you export score history from another system
-- skins, points, or league standings views
+- browser CORS restrictions may block some GHIN requests
+- GHIN may rotate or invalidate tokens frequently
+- the returned JSON shape may change without notice
+- club lookup visibility depends on what GHIN allows your account to access
