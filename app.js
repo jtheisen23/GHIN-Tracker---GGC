@@ -95,7 +95,9 @@ async function handleLogin(event) {
     elements.loginStatus.textContent = "";
   } catch (error) {
     elements.loginStatus.textContent = error.message;
-    logout(false);
+    if (!session.token) {
+      logout(false);
+    }
   } finally {
     setLoginBusy(false, "Connect GHIN");
   }
@@ -111,14 +113,14 @@ async function refreshAllData() {
 
   try {
     const [scoresPayload, golferPayload, golfersPayload] = await Promise.all([
-      ghinFetch(`${API_BASE}/golfers/${encodeURIComponent(session.golferId)}/scores.json?per_page=100&page=1`),
+      fetchScores(session.golferId),
       ghinFetch(
         `${API_BASE}/golfers/search.json?per_page=1&page=1&golfer_id=${encodeURIComponent(session.golferId)}`,
       ),
       ghinFetch(`${API_BASE}/golfers.json?per_page=200&page=1`),
     ]);
 
-    session.scores = Array.isArray(scoresPayload.scores) ? scoresPayload.scores : [];
+    session.scores = extractScores(scoresPayload);
     session.golfers = Array.isArray(golfersPayload.golfers) ? golfersPayload.golfers : [];
     const selfGolfer =
       (Array.isArray(golferPayload.golfers) && golferPayload.golfers[0]) ||
@@ -147,6 +149,7 @@ async function refreshAllData() {
         <p>${escapeHtml(error.message)}</p>
       </div>
     `;
+    elements.loginStatus.textContent = error.message;
   } finally {
     elements.refreshButton.disabled = false;
     elements.refreshButton.textContent = "Refresh";
@@ -392,6 +395,26 @@ async function ghinFetch(url) {
       Authorization: `Bearer ${session.token}`,
     },
   });
+}
+
+async function fetchScores(golferId) {
+  const searchUrl = `${API_BASE}/scores/search.json?per_page=100&page=1&golfer_id=${encodeURIComponent(golferId)}`;
+  try {
+    return await ghinFetch(searchUrl);
+  } catch (error) {
+    const fallbackUrl = `${API_BASE}/golfers/${encodeURIComponent(golferId)}/scores.json?per_page=100&page=1`;
+    return ghinFetch(fallbackUrl);
+  }
+}
+
+function extractScores(payload) {
+  if (Array.isArray(payload.scores)) {
+    return payload.scores;
+  }
+  if (Array.isArray(payload.Scores)) {
+    return payload.Scores;
+  }
+  return [];
 }
 
 async function fetchJson(url, options = {}) {
