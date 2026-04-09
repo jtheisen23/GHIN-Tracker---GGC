@@ -554,22 +554,22 @@ async function searchGolfers(query) {
   const attempts = [];
 
   if (/^\d+$/.test(trimmed)) {
-    attempts.push(`${API_BASE}/golfers/search.json?per_page=25&page=1&golfer_id=${encodeURIComponent(trimmed)}`);
-    attempts.push(`${API_BASE}/golfers/search.json?per_page=25&page=1&ghin_number=${encodeURIComponent(trimmed)}`);
-  }
-
-  attempts.push(`${API_BASE}/golfers/search.json?per_page=25&page=1&q=${encodeURIComponent(trimmed)}`);
-
-  const parts = trimmed.split(/\s+/).filter(Boolean);
-  if (parts.length >= 2) {
     attempts.push(
-      `${API_BASE}/golfers/search.json?per_page=25&page=1&first_name=${encodeURIComponent(parts[0])}&last_name=${encodeURIComponent(parts.slice(1).join(" "))}`,
+      `${API_BASE}/golfers/search.json?per_page=25&page=1&golfer_id=${encodeURIComponent(trimmed)}&sorting_criteria=id&order=ASC&status=Active`,
     );
     attempts.push(
-      `${API_BASE}/golfers/search.json?per_page=25&page=1&last_name=${encodeURIComponent(parts.slice(1).join(" "))}&first_name=${encodeURIComponent(parts[0])}`,
+      `${API_BASE}/golfers/search.json?per_page=25&page=1&ghin_number=${encodeURIComponent(trimmed)}&sorting_criteria=id&order=ASC&status=Active`,
     );
   } else {
-    attempts.push(`${API_BASE}/golfers/search.json?per_page=25&page=1&last_name=${encodeURIComponent(trimmed)}`);
+    attempts.push(
+      `${API_BASE}/golfers/search.json?per_page=25&page=1&last_name=${encodeURIComponent(trimmed)}&sorting_criteria=id&order=ASC&status=Active`,
+    );
+    attempts.push(
+      `${API_BASE}/golfers/search.json?per_page=25&page=1&last_name=${encodeURIComponent(trimmed)}`,
+    );
+    attempts.push(
+      `${API_BASE}/golfers/search.json?per_page=25&page=1&q=${encodeURIComponent(trimmed)}`,
+    );
   }
 
   let lastError = null;
@@ -586,9 +586,11 @@ async function searchGolfers(query) {
   }
 
   if (lastError) {
+    if (lastError.message.includes("Invalid token")) {
+      throw new Error("Last-name search is still failing in GHIN. Exact GHIN number search works best right now.");
+    }
     throw new Error(`Golfer search failed: ${lastError.message}`);
   }
-
   return [];
 }
 

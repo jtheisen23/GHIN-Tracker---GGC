@@ -1,24 +1,24 @@
 # GHIN Tracker for GGC
 
-Static browser dashboard for GHIN login, score history, handicap trend viewing, and club member lookup.
+Browser-based GHIN dashboard for your own login, scores, trends, and golfer comparison.
 
 ## What it does
 
 - signs in with your GHIN login from the browser
 - requests your recent scores from GHIN-style endpoints
 - shows an estimated handicap trend line from returned differentials
-- shows golfers available through your GHIN-accessible lookup results
+- lets you search other golfers and save them to a comparison table
 
 ## Important warning
 
-This project uses unofficial GHIN app-style API endpoints from browser code.
+This project uses unofficial GHIN app-style API endpoints from the browser.
 
 That means:
 
 - this is not an official GHIN or USGA integration
 - GHIN can change or block these endpoints at any time
 - your GHIN login flow is happening in the browser
-- this is simpler to host on GitHub Pages, but less secure and less reliable than a server-backed app
+- some GHIN lookup endpoints may work differently than they do in the official GHIN app
 
 ## Known endpoint pattern used here
 
@@ -39,6 +39,17 @@ Then visit:
 http://127.0.0.1:8080
 ```
 
+## Using golfer search
+
+1. Log in to the site with your GHIN credentials.
+2. In `Search golfers to compare`, search by exact GHIN number or last name.
+3. Add golfers to the comparison table.
+
+Best current results:
+
+- exact GHIN number search works best
+- last-name search is still experimental and may fail depending on GHIN session behavior
+
 ## Deploy to GitHub Pages
 
 1. Push `index.html`, `styles.css`, and `app.js` to your repo.
@@ -53,4 +64,4 @@ http://127.0.0.1:8080
 - browser CORS restrictions may block some GHIN requests
 - GHIN may rotate or invalidate tokens frequently
 - the returned JSON shape may change without notice
-- club lookup visibility depends on what GHIN allows your account to access
+- golfer search still depends on what GHIN allows for the browser session token
