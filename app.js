@@ -16,6 +16,7 @@ const elements = {
   loginForm: document.querySelector("#loginForm"),
   loginButton: document.querySelector("#loginButton"),
   loginStatus: document.querySelector("#loginStatus"),
+  appStatus: document.querySelector("#appStatus"),
   accountChip: document.querySelector("#accountChip"),
   refreshButton: document.querySelector("#refreshButton"),
   logoutButton: document.querySelector("#logoutButton"),
@@ -91,9 +92,10 @@ async function handleLogin(event) {
     }
 
     elements.accountChip.textContent = session.golferName;
+    document.body.classList.add("session-active");
     elements.loginScreen.classList.add("hidden");
     elements.appShell.classList.remove("hidden");
-    elements.loginStatus.textContent = "";
+    setStatus("");
     setLoginBusy(false, "Connect GHIN");
     refreshAllData();
     return;
@@ -183,9 +185,13 @@ function logout(resetForm = true) {
   session.golferName = "";
   session.scores = [];
   session.golfers = [];
+  document.body.classList.remove("session-active");
   elements.appShell.classList.add("hidden");
   elements.loginScreen.classList.remove("hidden");
   elements.accountChip.textContent = "Not connected";
+  if (elements.appStatus) {
+    elements.appStatus.textContent = "";
+  }
   if (resetForm) {
     elements.loginForm.reset();
   }
@@ -541,6 +547,9 @@ function withTimeout(promise, timeoutMs, label) {
 
 function setStatus(message) {
   elements.loginStatus.textContent = message;
+  if (elements.appStatus) {
+    elements.appStatus.textContent = session.token ? message : "";
+  }
 }
 
 function formatDate(value) {

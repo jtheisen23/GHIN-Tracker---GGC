@@ -37,6 +37,14 @@ input {
   display: none;
 }
 
+body.session-active #loginScreen {
+  display: none !important;
+}
+
+body.session-active #appShell {
+  display: block !important;
+}
+
 .login-screen {
   min-height: 100vh;
   display: grid;
@@ -185,6 +193,11 @@ input:focus {
   border-radius: 999px;
   padding: 10px 14px;
   font-size: 0.8rem;
+}
+
+.app-status {
+  min-width: 180px;
+  margin: 0;
 }
 
 .page-shell {
