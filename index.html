@@ -43,7 +43,7 @@
             <p class="status-text" id="loginStatus" aria-live="polite"></p>
           </div>
         </form>
-        <p class="status-text">Build 2026-04-09.4</p>
+        <p class="status-text">Build 2026-04-09.5</p>
       </section>
     </div>
 
@@ -102,9 +102,37 @@
           <div class="section-heading">
             <div>
               <p class="eyebrow">Club Lookup</p>
-              <h3>Members you can access</h3>
+              <h3>Search golfers to compare</h3>
             </div>
-            <input type="search" id="memberSearch" class="search-input" placeholder="Search by name or GHIN #" />
+            <div class="search-bar">
+              <input type="search" id="memberSearch" class="search-input" placeholder="Search by name or GHIN #" />
+              <button class="button ghost" id="memberSearchButton" type="button">Search</button>
+            </div>
+          </div>
+          <p class="status-text" id="memberSearchStatus" aria-live="polite"></p>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>GHIN #</th>
+                  <th>Index</th>
+                  <th>Trend</th>
+                  <th>Club</th>
+                  <th>Compare</th>
+                </tr>
+              </thead>
+              <tbody id="membersTableBody"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Comparison</p>
+              <h3>Saved golfers</h3>
+            </div>
           </div>
           <div class="table-wrap">
             <table>
@@ -115,9 +143,10 @@
                   <th>Index</th>
                   <th>Trend</th>
                   <th>Club</th>
+                  <th>Action</th>
                 </tr>
               </thead>
-              <tbody id="membersTableBody"></tbody>
+              <tbody id="comparisonTableBody"></tbody>
             </table>
           </div>
         </section>
@@ -135,6 +164,6 @@
       </tr>
     </template>
 
-    <script src="./app.js?v=20260409-4"></script>
+    <script src="./app.js?v=20260409-5"></script>
   </body>
 </html>

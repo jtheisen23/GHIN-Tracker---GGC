@@ -8,6 +8,7 @@ const session = {
   golferName: "",
   scores: [],
   golfers: [],
+  comparisonGolfers: [],
 };
 
 const elements = {
@@ -24,7 +25,10 @@ const elements = {
   trendChart: document.querySelector("#trendChart"),
   scoresTableBody: document.querySelector("#scoresTableBody"),
   membersTableBody: document.querySelector("#membersTableBody"),
+  comparisonTableBody: document.querySelector("#comparisonTableBody"),
   memberSearch: document.querySelector("#memberSearch"),
+  memberSearchButton: document.querySelector("#memberSearchButton"),
+  memberSearchStatus: document.querySelector("#memberSearchStatus"),
   emptyStateTemplate: document.querySelector("#emptyStateTemplate"),
 };
 
@@ -34,7 +38,10 @@ function bindEvents() {
   elements.loginForm.addEventListener("submit", handleLogin);
   elements.refreshButton.addEventListener("click", refreshAllData);
   elements.logoutButton.addEventListener("click", logout);
-  elements.memberSearch.addEventListener("input", renderMembersTable);
+  elements.memberSearch.addEventListener("keydown", handleMemberSearchKeydown);
+  elements.memberSearchButton.addEventListener("click", handleMemberSearch);
+  elements.membersTableBody.addEventListener("click", handleMembersTableClick);
+  elements.comparisonTableBody.addEventListener("click", handleComparisonTableClick);
 }
 
 async function handleLogin(event) {
@@ -152,6 +159,7 @@ async function refreshAllData() {
     renderTrendChart(session.scores);
     renderScoresTable(session.scores);
     renderMembersTable();
+    renderComparisonTable();
     setStatus("Loading member list...");
     void refreshMemberList();
   } catch (error) {
@@ -166,6 +174,7 @@ async function refreshAllData() {
     elements.scoresTableBody.appendChild(elements.emptyStateTemplate.content.cloneNode(true));
     elements.membersTableBody.innerHTML = "";
     elements.membersTableBody.appendChild(elements.emptyStateTemplate.content.cloneNode(true));
+    renderComparisonTable();
     elements.trendChart.innerHTML = `
       <div class="empty-state">
         <h3>GHIN request failed</h3>
@@ -185,12 +194,16 @@ function logout(resetForm = true) {
   session.golferName = "";
   session.scores = [];
   session.golfers = [];
+  session.comparisonGolfers = [];
   document.body.classList.remove("session-active");
   elements.appShell.classList.add("hidden");
   elements.loginScreen.classList.remove("hidden");
   elements.accountChip.textContent = "Not connected";
   if (elements.appStatus) {
     elements.appStatus.textContent = "";
+  }
+  if (elements.memberSearchStatus) {
+    elements.memberSearchStatus.textContent = "";
   }
   if (resetForm) {
     elements.loginForm.reset();
@@ -271,23 +284,13 @@ function renderScoresTable(scores) {
 }
 
 function renderMembersTable() {
-  const query = elements.memberSearch.value.trim().toLowerCase();
-  const filtered = session.golfers.filter((golfer) => {
-    if (!query) {
-      return true;
-    }
-    const name = `${golfer.first_name || ""} ${golfer.last_name || ""}`.trim().toLowerCase();
-    const ghin = String(golfer.ghin_number || golfer.id || "").toLowerCase();
-    return name.includes(query) || ghin.includes(query);
-  });
-
-  if (!filtered.length) {
+  if (!session.golfers.length) {
     elements.membersTableBody.innerHTML = `
       <tr>
-        <td colspan="5">
+        <td colspan="6">
           <div class="empty-state">
-            <h3>No matching golfers</h3>
-            <p>Try a different search or refresh your GHIN session.</p>
+            <h3>No golfers loaded</h3>
+            <p>Search by name or GHIN number to find golfers you want to compare.</p>
           </div>
         </td>
       </tr>
@@ -295,17 +298,64 @@ function renderMembersTable() {
     return;
   }
 
-  elements.membersTableBody.innerHTML = filtered
+  elements.membersTableBody.innerHTML = session.golfers
     .map((golfer) => {
       const name = `${golfer.first_name || ""} ${golfer.last_name || ""}`.trim() || golfer.player_name || "Unknown";
+      const index = golfer.handicap_index ?? golfer.display ?? "—";
+      const golferId = String(golfer.ghin_number || golfer.id || "");
+      const alreadyAdded = session.comparisonGolfers.some(
+        (savedGolfer) => String(savedGolfer.ghin_number || savedGolfer.id || "") === golferId,
+      );
+      return `
+        <tr>
+          <td>${escapeHtml(name)}</td>
+          <td>${escapeHtml(golferId || "—")}</td>
+          <td><span class="pill">${escapeHtml(String(index))}</span></td>
+          <td>${formatTrend(Number(golfer.trend ?? 0))}</td>
+          <td>${escapeHtml(golfer.club_name || golfer.golf_association_name || "—")}</td>
+          <td>
+            <button class="button ghost compare-button" type="button" data-action="add-compare" data-ghin="${escapeHtml(golferId)}" ${alreadyAdded ? "disabled" : ""}>
+              ${alreadyAdded ? "Added" : "Add"}
+            </button>
+          </td>
+        </tr>
+      `;
+    })
+    .join("");
+}
+
+function renderComparisonTable() {
+  if (!session.comparisonGolfers.length) {
+    elements.comparisonTableBody.innerHTML = `
+      <tr>
+        <td colspan="6">
+          <div class="empty-state">
+            <h3>No comparison golfers yet</h3>
+            <p>Search for a golfer above and add them here to compare handicap and trend.</p>
+          </div>
+        </td>
+      </tr>
+    `;
+    return;
+  }
+
+  elements.comparisonTableBody.innerHTML = session.comparisonGolfers
+    .map((golfer) => {
+      const name = `${golfer.first_name || ""} ${golfer.last_name || ""}`.trim() || golfer.player_name || "Unknown";
+      const golferId = String(golfer.ghin_number || golfer.id || "");
       const index = golfer.handicap_index ?? golfer.display ?? "—";
       return `
         <tr>
           <td>${escapeHtml(name)}</td>
-          <td>${escapeHtml(String(golfer.ghin_number || golfer.id || "—"))}</td>
+          <td>${escapeHtml(golferId || "—")}</td>
           <td><span class="pill">${escapeHtml(String(index))}</span></td>
           <td>${formatTrend(Number(golfer.trend ?? 0))}</td>
           <td>${escapeHtml(golfer.club_name || golfer.golf_association_name || "—")}</td>
+          <td>
+            <button class="button ghost compare-button" type="button" data-action="remove-compare" data-ghin="${escapeHtml(golferId)}">
+              Remove
+            </button>
+          </td>
         </tr>
       `;
     })
@@ -451,12 +501,154 @@ async function refreshMemberList() {
     const golfersPayload = await withTimeout(fetchGolfers(), 8000, "member list");
     session.golfers = Array.isArray(golfersPayload.golfers) ? golfersPayload.golfers : [];
     renderMembersTable();
-    setStatus("");
+    renderComparisonTable();
+    if (!elements.memberSearch.value.trim()) {
+      setStatus("");
+    }
   } catch (error) {
     session.golfers = [];
     renderMembersTable();
+    renderComparisonTable();
     setStatus("Member list unavailable right now");
   }
+}
+
+function handleMemberSearchKeydown(event) {
+  if (event.key === "Enter") {
+    event.preventDefault();
+    handleMemberSearch();
+  }
+}
+
+async function handleMemberSearch() {
+  const query = elements.memberSearch.value.trim();
+  if (!query) {
+    elements.memberSearchStatus.textContent = "Enter a golfer name or GHIN number.";
+    return;
+  }
+
+  elements.memberSearchButton.disabled = true;
+  elements.memberSearchButton.textContent = "Searching...";
+  elements.memberSearchStatus.textContent = `Searching for "${query}"...`;
+
+  try {
+    const golfers = await searchGolfers(query);
+    session.golfers = dedupeGolfers(golfers);
+    renderMembersTable();
+    renderComparisonTable();
+    elements.memberSearchStatus.textContent = session.golfers.length
+      ? `Found ${session.golfers.length} golfer${session.golfers.length === 1 ? "" : "s"}.`
+      : "No golfers found for that search.";
+  } catch (error) {
+    session.golfers = [];
+    renderMembersTable();
+    elements.memberSearchStatus.textContent = error.message;
+  } finally {
+    elements.memberSearchButton.disabled = false;
+    elements.memberSearchButton.textContent = "Search";
+  }
+}
+
+async function searchGolfers(query) {
+  const trimmed = query.trim();
+  const attempts = [];
+
+  if (/^\d+$/.test(trimmed)) {
+    attempts.push(`${API_BASE}/golfers/search.json?per_page=25&page=1&golfer_id=${encodeURIComponent(trimmed)}`);
+    attempts.push(`${API_BASE}/golfers/search.json?per_page=25&page=1&ghin_number=${encodeURIComponent(trimmed)}`);
+  }
+
+  attempts.push(`${API_BASE}/golfers/search.json?per_page=25&page=1&q=${encodeURIComponent(trimmed)}`);
+
+  const parts = trimmed.split(/\s+/).filter(Boolean);
+  if (parts.length >= 2) {
+    attempts.push(
+      `${API_BASE}/golfers/search.json?per_page=25&page=1&first_name=${encodeURIComponent(parts[0])}&last_name=${encodeURIComponent(parts.slice(1).join(" "))}`,
+    );
+    attempts.push(
+      `${API_BASE}/golfers/search.json?per_page=25&page=1&last_name=${encodeURIComponent(parts.slice(1).join(" "))}&first_name=${encodeURIComponent(parts[0])}`,
+    );
+  } else {
+    attempts.push(`${API_BASE}/golfers/search.json?per_page=25&page=1&last_name=${encodeURIComponent(trimmed)}`);
+  }
+
+  let lastError = null;
+  for (const url of attempts) {
+    try {
+      const payload = await withTimeout(ghinFetch(url, "golfer search"), 8000, "golfer search");
+      const golfers = normalizeGolfers(payload);
+      if (golfers.length) {
+        return golfers;
+      }
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  if (lastError) {
+    throw new Error(`Golfer search failed: ${lastError.message}`);
+  }
+
+  return [];
+}
+
+function normalizeGolfers(payload) {
+  if (Array.isArray(payload?.golfers)) {
+    return payload.golfers;
+  }
+  if (Array.isArray(payload?.Golfers)) {
+    return payload.Golfers;
+  }
+  if (payload?.golfer) {
+    return [payload.golfer];
+  }
+  return [];
+}
+
+function dedupeGolfers(golfers) {
+  const seen = new Set();
+  return golfers.filter((golfer) => {
+    const key = String(golfer.ghin_number || golfer.id || `${golfer.first_name}-${golfer.last_name}`);
+    if (seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
+  });
+}
+
+function handleMembersTableClick(event) {
+  const button = event.target.closest("button[data-action='add-compare']");
+  if (!button) {
+    return;
+  }
+
+  const golferId = button.dataset.ghin;
+  const golfer = session.golfers.find(
+    (candidate) => String(candidate.ghin_number || candidate.id || "") === golferId,
+  );
+
+  if (!golfer) {
+    return;
+  }
+
+  session.comparisonGolfers = dedupeGolfers([...session.comparisonGolfers, golfer]);
+  renderMembersTable();
+  renderComparisonTable();
+}
+
+function handleComparisonTableClick(event) {
+  const button = event.target.closest("button[data-action='remove-compare']");
+  if (!button) {
+    return;
+  }
+
+  const golferId = button.dataset.ghin;
+  session.comparisonGolfers = session.comparisonGolfers.filter(
+    (golfer) => String(golfer.ghin_number || golfer.id || "") !== golferId,
+  );
+  renderMembersTable();
+  renderComparisonTable();
 }
 
 async function ghinFetchWithFallback(url, label = "GHIN request") {
