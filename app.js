@@ -1,11 +1,13 @@
 const LOGIN_URL = "https://api2.ghin.com/api/v1/golfer_login.json";
 const API_BASE = "https://api.ghin.com/api/v1";
+const API2_BASE = "https://api2.ghin.com/api/v1";
 const REQUEST_TIMEOUT_MS = 15000;
 
 const session = {
   token: "",
   golferId: "",
   golferName: "",
+  associationId: "",
   scores: [],
   golfers: [],
   comparisonGolfers: [],
@@ -93,6 +95,11 @@ async function handleLogin(event) {
       [golferUser.first_name, golferUser.last_name].filter(Boolean).join(" ") ||
       (golferUser.golfers && golferUser.golfers[0] && golferUser.golfers[0].player_name) ||
       username;
+    session.associationId =
+      golferUser.association_id ||
+      golferUser.golf_association_id ||
+      (golferUser.golfers && golferUser.golfers[0] && golferUser.golfers[0].association_id) ||
+      "";
 
     if (!session.golferId) {
       throw new Error("Could not determine your GHIN player id from the login response.");
@@ -192,6 +199,7 @@ function logout(resetForm = true) {
   session.token = "";
   session.golferId = "";
   session.golferName = "";
+  session.associationId = "";
   session.scores = [];
   session.golfers = [];
   session.comparisonGolfers = [];
@@ -287,7 +295,7 @@ function renderMembersTable() {
   if (!session.golfers.length) {
     elements.membersTableBody.innerHTML = `
       <tr>
-        <td colspan="6">
+        <td colspan="7">
           <div class="empty-state">
             <h3>No golfers loaded</h3>
             <p>Search by name or GHIN number to find golfers you want to compare.</p>
@@ -303,6 +311,7 @@ function renderMembersTable() {
       const name = `${golfer.first_name || ""} ${golfer.last_name || ""}`.trim() || golfer.player_name || "Unknown";
       const index = golfer.handicap_index ?? golfer.display ?? "—";
       const golferId = String(golfer.ghin_number || golfer.id || "");
+      const lastRoundPosted = getLastRoundPosted(golfer);
       const alreadyAdded = session.comparisonGolfers.some(
         (savedGolfer) => String(savedGolfer.ghin_number || savedGolfer.id || "") === golferId,
       );
@@ -312,6 +321,7 @@ function renderMembersTable() {
           <td>${escapeHtml(golferId || "—")}</td>
           <td><span class="pill">${escapeHtml(String(index))}</span></td>
           <td>${formatTrend(Number(golfer.trend ?? 0))}</td>
+          <td>${escapeHtml(lastRoundPosted)}</td>
           <td>${escapeHtml(golfer.club_name || golfer.golf_association_name || "—")}</td>
           <td>
             <button class="button ghost compare-button" type="button" data-action="add-compare" data-ghin="${escapeHtml(golferId)}" ${alreadyAdded ? "disabled" : ""}>
@@ -328,7 +338,7 @@ function renderComparisonTable() {
   if (!session.comparisonGolfers.length) {
     elements.comparisonTableBody.innerHTML = `
       <tr>
-        <td colspan="6">
+        <td colspan="7">
           <div class="empty-state">
             <h3>No comparison golfers yet</h3>
             <p>Search for a golfer above and add them here to compare handicap and trend.</p>
@@ -344,12 +354,14 @@ function renderComparisonTable() {
       const name = `${golfer.first_name || ""} ${golfer.last_name || ""}`.trim() || golfer.player_name || "Unknown";
       const golferId = String(golfer.ghin_number || golfer.id || "");
       const index = golfer.handicap_index ?? golfer.display ?? "—";
+      const lastRoundPosted = getLastRoundPosted(golfer);
       return `
         <tr>
           <td>${escapeHtml(name)}</td>
           <td>${escapeHtml(golferId || "—")}</td>
           <td><span class="pill">${escapeHtml(String(index))}</span></td>
           <td>${formatTrend(Number(golfer.trend ?? 0))}</td>
+          <td>${escapeHtml(lastRoundPosted)}</td>
           <td>${escapeHtml(golfer.club_name || golfer.golf_association_name || "—")}</td>
           <td>
             <button class="button ghost compare-button" type="button" data-action="remove-compare" data-ghin="${escapeHtml(golferId)}">
@@ -447,7 +459,7 @@ function buildPolyline(series, color, inner, plotWidth, plotHeight, min, max) {
       stroke-width="3"
       stroke-linecap="round"
       stroke-linejoin="round"
-      points="${points.map((point) => `${point.x},${point.y}`).join(" ")}"
+      points="${points.map((point) => `${point.x},${point.y}`).join(" ")}" 
     />
     ${points
       .map(
@@ -552,23 +564,38 @@ async function handleMemberSearch() {
 async function searchGolfers(query) {
   const trimmed = query.trim();
   const attempts = [];
+  const associationSuffix = session.associationId
+    ? `&association_id=${encodeURIComponent(session.associationId)}`
+    : "";
 
   if (/^\d+$/.test(trimmed)) {
     attempts.push(
-      `${API_BASE}/golfers/search.json?per_page=25&page=1&golfer_id=${encodeURIComponent(trimmed)}&sorting_criteria=id&order=ASC&status=Active`,
+      `${API_BASE}/golfers/search.json?per_page=25&page=1&golfer_id=${encodeURIComponent(trimmed)}&sorting_criteria=id&order=ASC&status=Active${associationSuffix}`,
     );
     attempts.push(
-      `${API_BASE}/golfers/search.json?per_page=25&page=1&ghin_number=${encodeURIComponent(trimmed)}&sorting_criteria=id&order=ASC&status=Active`,
+      `${API_BASE}/golfers/search.json?per_page=25&page=1&ghin_number=${encodeURIComponent(trimmed)}&sorting_criteria=id&order=ASC&status=Active${associationSuffix}`,
+    );
+    attempts.push(
+      `${API2_BASE}/golfers/search.json?per_page=25&page=1&golfer_id=${encodeURIComponent(trimmed)}${associationSuffix}`,
+    );
+    attempts.push(
+      `${API2_BASE}/golfers/search.json?per_page=25&page=1&ghin_number=${encodeURIComponent(trimmed)}${associationSuffix}`,
     );
   } else {
     attempts.push(
-      `${API_BASE}/golfers/search.json?per_page=25&page=1&last_name=${encodeURIComponent(trimmed)}&sorting_criteria=id&order=ASC&status=Active`,
+      `${API_BASE}/golfers/search.json?per_page=25&page=1&last_name=${encodeURIComponent(trimmed)}&sorting_criteria=id&order=ASC&status=Active${associationSuffix}`,
     );
     attempts.push(
-      `${API_BASE}/golfers/search.json?per_page=25&page=1&last_name=${encodeURIComponent(trimmed)}`,
+      `${API_BASE}/golfers/search.json?per_page=25&page=1&last_name=${encodeURIComponent(trimmed)}${associationSuffix}`,
     );
     attempts.push(
-      `${API_BASE}/golfers/search.json?per_page=25&page=1&q=${encodeURIComponent(trimmed)}`,
+      `${API_BASE}/golfers/search.json?per_page=25&page=1&q=${encodeURIComponent(trimmed)}${associationSuffix}`,
+    );
+    attempts.push(
+      `${API2_BASE}/golfers/search.json?per_page=25&page=1&last_name=${encodeURIComponent(trimmed)}${associationSuffix}`,
+    );
+    attempts.push(
+      `${API2_BASE}/golfers/search.json?per_page=25&page=1&q=${encodeURIComponent(trimmed)}${associationSuffix}`,
     );
   }
 
@@ -605,6 +632,19 @@ function normalizeGolfers(payload) {
     return [payload.golfer];
   }
   return [];
+}
+
+function getLastRoundPosted(golfer) {
+  const value =
+    golfer.last_round_posted_at ||
+    golfer.last_round_posted_date ||
+    golfer.latest_score_date ||
+    golfer.last_score_date ||
+    golfer.most_recent_round_date ||
+    golfer.recent_score_date ||
+    golfer.updated_at ||
+    "";
+  return value ? formatDate(value) : "—";
 }
 
 function dedupeGolfers(golfers) {
