@@ -9,8 +9,10 @@ const session = {
   golferName: "",
   associationId: "",
   scores: [],
+  directoryGolfers: [],
   golfers: [],
   comparisonGolfers: [],
+  lastRoundByGolferId: {},
 };
 
 const elements = {
@@ -156,6 +158,7 @@ async function refreshAllData() {
     const golferPayload = golferResult.value;
 
     session.scores = extractScores(scoresPayload);
+    session.directoryGolfers = [];
     session.golfers = [];
     const selfGolfer =
       (Array.isArray(golferPayload.golfers) && golferPayload.golfers[0]) ||
@@ -201,8 +204,10 @@ function logout(resetForm = true) {
   session.golferName = "";
   session.associationId = "";
   session.scores = [];
+  session.directoryGolfers = [];
   session.golfers = [];
   session.comparisonGolfers = [];
+  session.lastRoundByGolferId = {};
   document.body.classList.remove("session-active");
   elements.appShell.classList.add("hidden");
   elements.loginScreen.classList.remove("hidden");
@@ -459,7 +464,7 @@ function buildPolyline(series, color, inner, plotWidth, plotHeight, min, max) {
       stroke-width="3"
       stroke-linecap="round"
       stroke-linejoin="round"
-      points="${points.map((point) => `${point.x},${point.y}`).join(" ")}" 
+      points="${points.map((point) => `${point.x},${point.y}`).join(" ")}"
     />
     ${points
       .map(
@@ -481,20 +486,23 @@ async function ghinFetch(url, label = "GHIN request") {
   return ghinFetchWithFallback(url, label);
 }
 
-async function fetchScores(golferId) {
-  setStatus("Loading score history...");
+async function fetchScores(golferId, options = {}) {
+  if (!options.silent) {
+    setStatus("Loading score history...");
+  }
   const today = new Date();
   const from = new Date(today);
   from.setFullYear(today.getFullYear() - 3);
+  const perPage = options.perPage || 100;
   const searchUrl =
-    `${API_BASE}/scores/search.json?per_page=100&page=1` +
+    `${API_BASE}/scores/search.json?per_page=${perPage}&page=1` +
     `&golfer_id=${encodeURIComponent(golferId)}` +
     `&from_date_played=${formatApiDate(from)}` +
     `&to_date_played=${formatApiDate(today)}`;
   try {
     return await ghinFetch(searchUrl, "score history");
   } catch (error) {
-    const fallbackUrl = `${API_BASE}/golfers/${encodeURIComponent(golferId)}/scores.json?per_page=100&page=1`;
+    const fallbackUrl = `${API_BASE}/golfers/${encodeURIComponent(golferId)}/scores.json?per_page=${perPage}&page=1`;
     return ghinFetch(fallbackUrl, "score history fallback");
   }
 }
@@ -511,13 +519,15 @@ async function fetchGolfers() {
 async function refreshMemberList() {
   try {
     const golfersPayload = await withTimeout(fetchGolfers(), 8000, "member list");
-    session.golfers = Array.isArray(golfersPayload.golfers) ? golfersPayload.golfers : [];
+    session.directoryGolfers = Array.isArray(golfersPayload.golfers) ? golfersPayload.golfers : [];
+    session.golfers = session.directoryGolfers;
     renderMembersTable();
     renderComparisonTable();
     if (!elements.memberSearch.value.trim()) {
       setStatus("");
     }
   } catch (error) {
+    session.directoryGolfers = [];
     session.golfers = [];
     renderMembersTable();
     renderComparisonTable();
@@ -545,7 +555,7 @@ async function handleMemberSearch() {
 
   try {
     const golfers = await searchGolfers(query);
-    session.golfers = dedupeGolfers(golfers);
+    session.golfers = await enrichGolfersWithLastRoundPosted(dedupeGolfers(golfers));
     renderMembersTable();
     renderComparisonTable();
     elements.memberSearchStatus.textContent = session.golfers.length
@@ -563,6 +573,11 @@ async function handleMemberSearch() {
 
 async function searchGolfers(query) {
   const trimmed = query.trim();
+  const localMatches = findLocalLastNameMatches(trimmed);
+  if (localMatches.length) {
+    return localMatches;
+  }
+
   const attempts = [];
   const associationSuffix = session.associationId
     ? `&association_id=${encodeURIComponent(session.associationId)}`
@@ -586,6 +601,12 @@ async function searchGolfers(query) {
       `${API_BASE}/golfers/search.json?per_page=25&page=1&last_name=${encodeURIComponent(trimmed)}&sorting_criteria=id&order=ASC&status=Active${associationSuffix}`,
     );
     attempts.push(
+      `${API_BASE}/golfers/search.json?per_page=25&page=1&search=${encodeURIComponent(trimmed)}${associationSuffix}`,
+    );
+    attempts.push(
+      `${API_BASE}/golfers/search.json?per_page=25&page=1&golfer_name=${encodeURIComponent(trimmed)}${associationSuffix}`,
+    );
+    attempts.push(
       `${API_BASE}/golfers/search.json?per_page=25&page=1&last_name=${encodeURIComponent(trimmed)}${associationSuffix}`,
     );
     attempts.push(
@@ -593,6 +614,12 @@ async function searchGolfers(query) {
     );
     attempts.push(
       `${API2_BASE}/golfers/search.json?per_page=25&page=1&last_name=${encodeURIComponent(trimmed)}${associationSuffix}`,
+    );
+    attempts.push(
+      `${API2_BASE}/golfers/search.json?per_page=25&page=1&search=${encodeURIComponent(trimmed)}${associationSuffix}`,
+    );
+    attempts.push(
+      `${API2_BASE}/golfers/search.json?per_page=25&page=1&golfer_name=${encodeURIComponent(trimmed)}${associationSuffix}`,
     );
     attempts.push(
       `${API2_BASE}/golfers/search.json?per_page=25&page=1&q=${encodeURIComponent(trimmed)}${associationSuffix}`,
@@ -621,6 +648,21 @@ async function searchGolfers(query) {
   return [];
 }
 
+function findLocalLastNameMatches(query) {
+  if (!query || /^\d+$/.test(query) || !session.directoryGolfers.length) {
+    return [];
+  }
+
+  const normalizedQuery = normalizeName(query);
+  return session.directoryGolfers.filter((golfer) => {
+    const lastName = normalizeName(golfer.last_name || "");
+    const fullName = normalizeName(
+      `${golfer.first_name || ""} ${golfer.last_name || ""}`.trim() || golfer.player_name || "",
+    );
+    return lastName.startsWith(normalizedQuery) || fullName.includes(normalizedQuery);
+  });
+}
+
 function normalizeGolfers(payload) {
   if (Array.isArray(payload?.golfers)) {
     return payload.golfers;
@@ -635,6 +677,11 @@ function normalizeGolfers(payload) {
 }
 
 function getLastRoundPosted(golfer) {
+  const golferId = String(golfer.ghin_number || golfer.id || "");
+  if (golferId && session.lastRoundByGolferId[golferId]) {
+    return session.lastRoundByGolferId[golferId];
+  }
+
   const value =
     golfer.last_round_posted_at ||
     golfer.last_round_posted_date ||
@@ -645,6 +692,48 @@ function getLastRoundPosted(golfer) {
     golfer.updated_at ||
     "";
   return value ? formatDate(value) : "—";
+}
+
+async function enrichGolfersWithLastRoundPosted(golfers) {
+  return Promise.all(
+    golfers.map(async (golfer) => {
+      const golferId = String(golfer.ghin_number || golfer.id || "");
+      if (!golferId || session.lastRoundByGolferId[golferId]) {
+        return golfer;
+      }
+
+      try {
+        const payload = await withTimeout(fetchScores(golferId, { silent: true, perPage: 10 }), 8000, "last round");
+        const scores = extractScores(payload);
+        const latestRound = getLatestRoundDate(scores);
+        if (latestRound) {
+          session.lastRoundByGolferId[golferId] = formatDate(latestRound);
+        }
+      } catch (error) {
+        session.lastRoundByGolferId[golferId] = "—";
+      }
+
+      return golfer;
+    }),
+  );
+}
+
+function getLatestRoundDate(scores) {
+  const dates = scores
+    .map((score) => score.played_at || score.score_day_1 || score.date_played || "")
+    .filter(Boolean)
+    .map((value) => new Date(value))
+    .filter((value) => !Number.isNaN(value.getTime()));
+
+  if (!dates.length) {
+    return "";
+  }
+
+  return new Date(Math.max(...dates.map((date) => date.getTime()))).toISOString();
+}
+
+function normalizeName(value) {
+  return String(value).trim().toLowerCase();
 }
 
 function dedupeGolfers(golfers) {
