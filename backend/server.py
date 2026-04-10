@@ -22,6 +22,8 @@ API2_BASE = "https://api2.ghin.com/api/v1"
 PORT = int(os.environ.get("PORT", "8787"))
 SESSION_TTL_SECONDS = int(os.environ.get("SESSION_TTL_SECONDS", "43200"))
 USER_AGENT = os.environ.get("GHIN_TRACKER_USER_AGENT", "GHIN-Tracker-GGC/1.0")
+DEFAULT_ASSOCIATION_ID = os.environ.get("GHIN_DEFAULT_ASSOCIATION_ID", "106").strip()
+DEFAULT_CLUB_ID = os.environ.get("GHIN_DEFAULT_CLUB_ID", "52147").strip()
 
 
 @dataclass
@@ -32,6 +34,7 @@ class GhinSession:
     golfer_id: str
     golfer_name: str
     association_id: str
+    club_id: str
     opener: object
     directory_golfers: list[dict] = field(default_factory=list)
     created_at: float = field(default_factory=time.time)
@@ -102,7 +105,7 @@ def format_last_round_value(scores: list[dict]) -> Optional[str]:
     return max(candidates)
 
 
-def build_attempts(query: str, association_id: str = "") -> list[str]:
+def build_attempts(query: str, association_id: str = "", club_id: str = "") -> list[str]:
     trimmed = query.strip()
     attempts: list[str] = []
     association_suffix = f"&association_id={quote(association_id)}" if association_id else ""
@@ -129,6 +132,11 @@ def build_attempts(query: str, association_id: str = "") -> list[str]:
         )
         attempts.append(
             f"{API2_BASE}/golfers/search.json?per_page=25&page=1&last_name={quote(trimmed)}{association_suffix}"
+        )
+    if club_id:
+        attempts.append(
+            f"{API_BASE}/golfers/search.json?per_page=25&page=1&club_id={quote(club_id)}"
+            f"&last_name={quote(trimmed)}&sorting_criteria=id&order=ASC&status=Active"
         )
     return attempts
 
@@ -171,7 +179,7 @@ def login_to_ghin(username: str, password: str) -> tuple[Optional[GhinSession], 
 
     golfer_user = data.get("golfer_user") if isinstance(data, dict) else None
     if not isinstance(golfer_user, dict):
-        return None, "GHIN login did not return golfer_user data."
+      return None, "GHIN login did not return golfer_user data."
 
     token = str(golfer_user.get("golfer_user_token") or "").strip()
     golfer_id = str(
@@ -186,7 +194,12 @@ def login_to_ghin(username: str, password: str) -> tuple[Optional[GhinSession], 
     association_id = str(
         golfer_user.get("association_id")
         or golfer_user.get("golf_association_id")
-        or ""
+        or DEFAULT_ASSOCIATION_ID
+    ).strip()
+    club_id = str(
+        golfer_user.get("club_id")
+        or (golfer_user.get("golfers") and golfer_user.get("golfers")[0] and golfer_user.get("golfers")[0].get("club_id"))
+        or DEFAULT_CLUB_ID
     ).strip()
 
     if not token or not golfer_id:
@@ -199,6 +212,7 @@ def login_to_ghin(username: str, password: str) -> tuple[Optional[GhinSession], 
         golfer_id=golfer_id,
         golfer_name=golfer_name,
         association_id=association_id,
+        club_id=club_id,
         opener=opener,
     )
     session.directory_golfers, _ = fetch_member_list(session)
@@ -232,12 +246,26 @@ def ghin_request(session: GhinSession, url: str) -> object:
 
 
 def fetch_member_list(session: GhinSession) -> tuple[list[dict], Optional[str]]:
-    try:
-        payload = ghin_request(session, f"{API_BASE}/golfers.json?per_page=200&page=1")
-    except Exception as error:
-        return [], str(error)
-    golfers = normalize_golfers(payload)
-    return golfers, None
+    urls = []
+    if session.club_id:
+        urls.append(f"{API_BASE}/golfers.json?per_page=200&page=1&club_id={quote(session.club_id)}")
+    if session.association_id:
+        urls.append(
+            f"{API_BASE}/golfers.json?per_page=200&page=1&association_id={quote(session.association_id)}"
+        )
+    urls.append(f"{API_BASE}/golfers.json?per_page=200&page=1")
+
+    last_error = None
+    for url in urls:
+        try:
+            payload = ghin_request(session, url)
+            golfers = normalize_golfers(payload)
+            if golfers:
+                return golfers, None
+        except Exception as error:
+            last_error = str(error)
+
+    return [], last_error
 
 
 def find_local_last_name_matches(session: GhinSession, query: str) -> list[dict]:
@@ -294,7 +322,7 @@ def search_golfers(session: GhinSession, query: str) -> tuple[list[dict], dict]:
         diagnostics["used_local_directory"] = True
         return golfers, diagnostics
 
-    attempts = build_attempts(query, session.association_id)
+    attempts = build_attempts(query, session.association_id, session.club_id)
     last_error = None
 
     for url in attempts:
@@ -306,7 +334,7 @@ def search_golfers(session: GhinSession, query: str) -> tuple[list[dict], dict]:
         except Exception as error:
             last_error = str(error)
 
-    if not query.strip().isdigit() and not session.association_id:
+    if not query.strip().isdigit() and not session.association_id and not session.club_id:
         diagnostics["search_error"] = (
             "GHIN last-name search needs club or association context for this account, and GHIN "
             "did not return that directory data here. Exact GHIN number search still works best."
@@ -399,6 +427,7 @@ class Handler(BaseHTTPRequestHandler):
                 "golfer_id": session.golfer_id,
                 "golfer_name": session.golfer_name,
                 "association_id": session.association_id,
+                "club_id": session.club_id,
                 "directory_count": len(session.directory_golfers),
             },
         )
