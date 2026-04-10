@@ -1,3 +1,3 @@
 window.GHIN_TRACKER_CONFIG = {
-  backendBaseUrl: "",
+  backendBaseUrl: "https://ghin-tracker-lookup-backend.onrender.com",
 };
