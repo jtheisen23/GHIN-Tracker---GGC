@@ -322,10 +322,11 @@ function renderMembersTable() {
     .map((golfer) => {
       const name = `${golfer.first_name || ""} ${golfer.last_name || ""}`.trim() || golfer.player_name || "Unknown";
       const index = golfer.handicap_index ?? golfer.display ?? "—";
-      const golferId = String(golfer.ghin_number || golfer.id || "");
+      const golferId = getGolferDisplayId(golfer);
+      const golferKey = getGolferKey(golfer);
       const lastRoundPosted = getLastRoundPosted(golfer);
       const alreadyAdded = session.comparisonGolfers.some(
-        (savedGolfer) => String(savedGolfer.ghin_number || savedGolfer.id || "") === golferId,
+        (savedGolfer) => getGolferKey(savedGolfer) === golferKey,
       );
       return `
         <tr>
@@ -336,7 +337,7 @@ function renderMembersTable() {
           <td>${escapeHtml(lastRoundPosted)}</td>
           <td>${escapeHtml(golfer.club_name || golfer.golf_association_name || "—")}</td>
           <td>
-            <button class="button ghost compare-button" type="button" data-action="add-compare" data-ghin="${escapeHtml(golferId)}" ${alreadyAdded ? "disabled" : ""}>
+            <button class="button ghost compare-button" type="button" data-action="add-compare" data-key="${escapeHtml(golferKey)}" ${alreadyAdded ? "disabled" : ""}>
               ${alreadyAdded ? "Added" : "Add"}
             </button>
           </td>
@@ -364,7 +365,8 @@ function renderComparisonTable() {
   elements.comparisonTableBody.innerHTML = session.comparisonGolfers
     .map((golfer) => {
       const name = `${golfer.first_name || ""} ${golfer.last_name || ""}`.trim() || golfer.player_name || "Unknown";
-      const golferId = String(golfer.ghin_number || golfer.id || "");
+      const golferId = getGolferDisplayId(golfer);
+      const golferKey = getGolferKey(golfer);
       const index = golfer.handicap_index ?? golfer.display ?? "—";
       const lastRoundPosted = getLastRoundPosted(golfer);
       return `
@@ -376,7 +378,7 @@ function renderComparisonTable() {
           <td>${escapeHtml(lastRoundPosted)}</td>
           <td>${escapeHtml(golfer.club_name || golfer.golf_association_name || "—")}</td>
           <td>
-            <button class="button ghost compare-button" type="button" data-action="remove-compare" data-ghin="${escapeHtml(golferId)}">
+            <button class="button ghost compare-button" type="button" data-action="remove-compare" data-key="${escapeHtml(golferKey)}">
               Remove
             </button>
           </td>
@@ -526,7 +528,7 @@ async function fetchGolfers() {
 async function refreshMemberList() {
   try {
     const golfersPayload = await withTimeout(fetchGolfers(), 8000, "member list");
-    session.directoryGolfers = Array.isArray(golfersPayload.golfers) ? golfersPayload.golfers : [];
+    session.directoryGolfers = prepareGolfers(Array.isArray(golfersPayload.golfers) ? golfersPayload.golfers : []);
     session.golfers = session.directoryGolfers;
     renderMembersTable();
     renderComparisonTable();
@@ -567,7 +569,7 @@ async function handleMemberSearch() {
 
   try {
     const golfers = await searchGolfers(query);
-    session.golfers = await enrichGolfersWithLastRoundPosted(dedupeGolfers(golfers));
+    session.golfers = await enrichGolfersWithLastRoundPosted(prepareGolfers(dedupeGolfers(golfers)));
     renderMembersTable();
     renderComparisonTable();
     elements.memberSearchStatus.textContent = session.golfers.length
@@ -692,6 +694,48 @@ function normalizeGolfers(payload) {
   return [];
 }
 
+function getGolferDisplayId(golfer) {
+  return String(
+    golfer.ghin_number ||
+      golfer.golfer_id ||
+      golfer.id ||
+      golfer.local_number ||
+      golfer.golf_association_number ||
+      "",
+  );
+}
+
+function getGolferKey(golfer) {
+  if (golfer._trackerKey) {
+    return golfer._trackerKey;
+  }
+  return `fallback:${getGolferDisplayId(golfer) || `${golfer.first_name || ""}|${golfer.last_name || ""}`}`;
+}
+
+function prepareGolfers(golfers) {
+  return golfers.map((golfer, index) => {
+    if (golfer._trackerKey) {
+      return golfer;
+    }
+    const displayId = getGolferDisplayId(golfer);
+    const fallbackBits = [
+      golfer.first_name || "",
+      golfer.last_name || "",
+      golfer.player_name || "",
+      golfer.club_name || golfer.golf_association_name || "",
+      golfer.handicap_index ?? golfer.display ?? "",
+      index,
+    ];
+    const trackerKey = displayId
+      ? `ghin:${displayId}`
+      : `fallback:${fallbackBits.join("|")}`;
+    return {
+      ...golfer,
+      _trackerKey: trackerKey,
+    };
+  });
+}
+
 function getLastRoundPosted(golfer) {
   if (golfer.backend_last_round_posted) {
     return formatDate(golfer.backend_last_round_posted);
@@ -759,8 +803,8 @@ function normalizeName(value) {
 
 function dedupeGolfers(golfers) {
   const seen = new Set();
-  return golfers.filter((golfer) => {
-    const key = String(golfer.ghin_number || golfer.id || `${golfer.first_name}-${golfer.last_name}`);
+  return prepareGolfers(golfers).filter((golfer) => {
+    const key = getGolferKey(golfer);
     if (seen.has(key)) {
       return false;
     }
@@ -775,9 +819,9 @@ function handleMembersTableClick(event) {
     return;
   }
 
-  const golferId = button.dataset.ghin;
+  const golferKey = button.dataset.key;
   const golfer = session.golfers.find(
-    (candidate) => String(candidate.ghin_number || candidate.id || "") === golferId,
+    (candidate) => getGolferKey(candidate) === golferKey,
   );
 
   if (!golfer) {
@@ -795,9 +839,9 @@ function handleComparisonTableClick(event) {
     return;
   }
 
-  const golferId = button.dataset.ghin;
+  const golferKey = button.dataset.key;
   session.comparisonGolfers = session.comparisonGolfers.filter(
-    (golfer) => String(golfer.ghin_number || golfer.id || "") !== golferId,
+    (golfer) => getGolferKey(golfer) !== golferKey,
   );
   renderMembersTable();
   renderComparisonTable();
