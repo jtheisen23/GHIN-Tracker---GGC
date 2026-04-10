@@ -987,6 +987,15 @@ async function searchGolfersViaBackend(query) {
   const golfers = normalizeGolfers(payload);
   const diagnostics = payload.diagnostics || {};
   if (!golfers.length && diagnostics.search_error) {
+    if (
+      diagnostics.search_error.includes("golfer_id, last_name and state") ||
+      diagnostics.search_error.includes("last_name and association_id") ||
+      diagnostics.search_error.includes("last_name and country")
+    ) {
+      throw new Error(
+        "GHIN needs more-specific last-name search filters for this account. Exact GHIN number search still works best right now.",
+      );
+    }
     throw new Error(`Lookup backend: ${diagnostics.search_error}`);
   }
   return golfers;

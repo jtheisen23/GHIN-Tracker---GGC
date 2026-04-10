@@ -123,33 +123,13 @@ def build_attempts(query: str, association_id: str = "") -> list[str]:
         )
         return attempts
 
-    attempts.append(
-        f"{API_BASE}/golfers/search.json?per_page=25&page=1&last_name={quote(trimmed)}{suffix}"
-    )
-    attempts.append(
-        f"{API_BASE}/golfers/search.json?per_page=25&page=1&search={quote(trimmed)}{association_suffix}"
-    )
-    attempts.append(
-        f"{API_BASE}/golfers/search.json?per_page=25&page=1&golfer_name={quote(trimmed)}{association_suffix}"
-    )
-    attempts.append(
-        f"{API_BASE}/golfers/search.json?per_page=25&page=1&last_name={quote(trimmed)}{association_suffix}"
-    )
-    attempts.append(
-        f"{API_BASE}/golfers/search.json?per_page=25&page=1&q={quote(trimmed)}{association_suffix}"
-    )
-    attempts.append(
-        f"{API2_BASE}/golfers/search.json?per_page=25&page=1&last_name={quote(trimmed)}{association_suffix}"
-    )
-    attempts.append(
-        f"{API2_BASE}/golfers/search.json?per_page=25&page=1&search={quote(trimmed)}{association_suffix}"
-    )
-    attempts.append(
-        f"{API2_BASE}/golfers/search.json?per_page=25&page=1&golfer_name={quote(trimmed)}{association_suffix}"
-    )
-    attempts.append(
-        f"{API2_BASE}/golfers/search.json?per_page=25&page=1&q={quote(trimmed)}{association_suffix}"
-    )
+    if association_id:
+        attempts.append(
+            f"{API_BASE}/golfers/search.json?per_page=25&page=1&last_name={quote(trimmed)}{suffix}"
+        )
+        attempts.append(
+            f"{API2_BASE}/golfers/search.json?per_page=25&page=1&last_name={quote(trimmed)}{association_suffix}"
+        )
     return attempts
 
 
@@ -325,6 +305,20 @@ def search_golfers(session: GhinSession, query: str) -> tuple[list[dict], dict]:
                 return golfers, diagnostics
         except Exception as error:
             last_error = str(error)
+
+    if not query.strip().isdigit() and not session.association_id:
+        diagnostics["search_error"] = (
+            "GHIN last-name search needs club or association context for this account, and GHIN "
+            "did not return that directory data here. Exact GHIN number search still works best."
+        )
+        return [], diagnostics
+
+    if last_error and "golfer_id, last_name and state, last_name and country" in last_error:
+        diagnostics["search_error"] = (
+            "GHIN last-name search needs narrower lookup filters for this account. Exact GHIN "
+            "number search still works best right now."
+        )
+        return [], diagnostics
 
     diagnostics["search_error"] = last_error
     return [], diagnostics
