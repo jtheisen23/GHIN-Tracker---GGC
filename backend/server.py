@@ -24,6 +24,7 @@ SESSION_TTL_SECONDS = int(os.environ.get("SESSION_TTL_SECONDS", "43200"))
 USER_AGENT = os.environ.get("GHIN_TRACKER_USER_AGENT", "GHIN-Tracker-GGC/1.0")
 DEFAULT_ASSOCIATION_ID = os.environ.get("GHIN_DEFAULT_ASSOCIATION_ID", "106").strip()
 DEFAULT_CLUB_ID = os.environ.get("GHIN_DEFAULT_CLUB_ID", "52147").strip()
+DEFAULT_CLUB_NAME = os.environ.get("GHIN_DEFAULT_CLUB_NAME", "Geneva Golf Club").strip()
 
 
 @dataclass
@@ -86,6 +87,15 @@ def get_golfer_club_id(golfer: dict) -> str:
     ).strip()
 
 
+def get_golfer_club_name(golfer: dict) -> str:
+    return normalize_name(
+        golfer.get("club_name")
+        or golfer.get("home_club_name")
+        or golfer.get("clubName")
+        or ""
+    )
+
+
 def extract_scores(payload: object) -> list[dict]:
     if isinstance(payload, dict):
         scores = payload.get("scores")
@@ -136,6 +146,10 @@ def build_attempts(query: str, association_id: str = "", club_id: str = "") -> l
         return attempts
 
     if club_id:
+        attempts.append(
+            f"{API_BASE}/golfers.json?per_page=25&page=1&club_id={quote(club_id)}"
+            f"&last_name={quote(trimmed)}"
+        )
         attempts.append(
             f"{API_BASE}/golfers/search.json?per_page=25&page=1&club_id={quote(club_id)}"
             f"&last_name={quote(trimmed)}&sorting_criteria=id&order=ASC&status=Active"
@@ -341,7 +355,12 @@ def search_golfers(session: GhinSession, query: str) -> tuple[list[dict], dict]:
             if golfers:
                 if session.club_id and not query.strip().isdigit():
                     club_matches = [
-                        golfer for golfer in golfers if get_golfer_club_id(golfer) == session.club_id
+                        golfer
+                        for golfer in golfers
+                        if (
+                            get_golfer_club_id(golfer) == session.club_id
+                            or get_golfer_club_name(golfer) == normalize_name(DEFAULT_CLUB_NAME)
+                        )
                     ]
                     if club_matches:
                         diagnostics["preferred_club_matches"] = len(club_matches)
