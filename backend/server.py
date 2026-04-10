@@ -77,6 +77,15 @@ def normalize_golfers(payload: object) -> list[dict]:
     return []
 
 
+def get_golfer_club_id(golfer: dict) -> str:
+    return str(
+        golfer.get("club_id")
+        or golfer.get("clubId")
+        or golfer.get("home_club_id")
+        or ""
+    ).strip()
+
+
 def extract_scores(payload: object) -> list[dict]:
     if isinstance(payload, dict):
         scores = payload.get("scores")
@@ -126,17 +135,17 @@ def build_attempts(query: str, association_id: str = "", club_id: str = "") -> l
         )
         return attempts
 
+    if club_id:
+        attempts.append(
+            f"{API_BASE}/golfers/search.json?per_page=25&page=1&club_id={quote(club_id)}"
+            f"&last_name={quote(trimmed)}&sorting_criteria=id&order=ASC&status=Active"
+        )
     if association_id:
         attempts.append(
             f"{API_BASE}/golfers/search.json?per_page=25&page=1&last_name={quote(trimmed)}{suffix}"
         )
         attempts.append(
             f"{API2_BASE}/golfers/search.json?per_page=25&page=1&last_name={quote(trimmed)}{association_suffix}"
-        )
-    if club_id:
-        attempts.append(
-            f"{API_BASE}/golfers/search.json?per_page=25&page=1&club_id={quote(club_id)}"
-            f"&last_name={quote(trimmed)}&sorting_criteria=id&order=ASC&status=Active"
         )
     return attempts
 
@@ -330,6 +339,13 @@ def search_golfers(session: GhinSession, query: str) -> tuple[list[dict], dict]:
             payload = ghin_request(session, url)
             golfers = normalize_golfers(payload)
             if golfers:
+                if session.club_id and not query.strip().isdigit():
+                    club_matches = [
+                        golfer for golfer in golfers if get_golfer_club_id(golfer) == session.club_id
+                    ]
+                    if club_matches:
+                        diagnostics["preferred_club_matches"] = len(club_matches)
+                        return club_matches, diagnostics
                 return golfers, diagnostics
         except Exception as error:
             last_error = str(error)
