@@ -2,12 +2,17 @@ const LOGIN_URL = "https://api2.ghin.com/api/v1/golfer_login.json";
 const API_BASE = "https://api.ghin.com/api/v1";
 const API2_BASE = "https://api2.ghin.com/api/v1";
 const REQUEST_TIMEOUT_MS = 15000;
+const BACKEND_BASE_URL =
+  (window.GHIN_TRACKER_CONFIG && window.GHIN_TRACKER_CONFIG.backendBaseUrl
+    ? String(window.GHIN_TRACKER_CONFIG.backendBaseUrl).trim()
+    : "") || "";
 
 const session = {
   token: "",
   golferId: "",
   golferName: "",
   associationId: "",
+  backendSessionId: "",
   scores: [],
   directoryGolfers: [],
   golfers: [],
@@ -113,6 +118,7 @@ async function handleLogin(event) {
     elements.appShell.classList.remove("hidden");
     setStatus("");
     setLoginBusy(false, "Connect GHIN");
+    void connectLookupBackend(username, password);
     refreshAllData();
     return;
   } catch (error) {
@@ -203,6 +209,7 @@ function logout(resetForm = true) {
   session.golferId = "";
   session.golferName = "";
   session.associationId = "";
+  session.backendSessionId = "";
   session.scores = [];
   session.directoryGolfers = [];
   session.golfers = [];
@@ -578,6 +585,10 @@ async function handleMemberSearch() {
 
 async function searchGolfers(query) {
   const trimmed = query.trim();
+  if (session.backendSessionId && BACKEND_BASE_URL) {
+    return searchGolfersViaBackend(trimmed);
+  }
+
   const localMatches = findLocalLastNameMatches(trimmed);
   if (localMatches.length) {
     return localMatches;
@@ -682,6 +693,9 @@ function normalizeGolfers(payload) {
 }
 
 function getLastRoundPosted(golfer) {
+  if (golfer.backend_last_round_posted) {
+    return formatDate(golfer.backend_last_round_posted);
+  }
   const golferId = String(golfer.ghin_number || golfer.id || "");
   if (golferId && session.lastRoundByGolferId[golferId]) {
     return session.lastRoundByGolferId[golferId];
@@ -922,4 +936,58 @@ function escapeHtml(value) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
+}
+
+async function connectLookupBackend(username, password) {
+  if (!BACKEND_BASE_URL) {
+    elements.memberSearchStatus.textContent =
+      "Lookup backend not configured yet. Exact GHIN number browser lookup remains available.";
+    return;
+  }
+
+  try {
+    const payload = await fetchJson(`${BACKEND_BASE_URL}/api/ghin/login`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json; charset=utf-8",
+      },
+      body: JSON.stringify({ username, password }),
+    });
+
+    session.backendSessionId = String(payload.session_id || "");
+    if (!session.backendSessionId) {
+      throw new Error("Backend did not return a session id.");
+    }
+
+    if (Number(payload.directory_count) > 0) {
+      elements.memberSearchStatus.textContent = `Lookup backend connected. Loaded ${payload.directory_count} club golfers for last-name search.`;
+      return;
+    }
+
+    elements.memberSearchStatus.textContent =
+      "Lookup backend connected, but GHIN returned an empty club directory for this account.";
+  } catch (error) {
+    session.backendSessionId = "";
+    elements.memberSearchStatus.textContent = `Lookup backend unavailable: ${error.message}`;
+  }
+}
+
+async function searchGolfersViaBackend(query) {
+  const payload = await fetchJson(`${BACKEND_BASE_URL}/api/ghin/search-golfers`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json; charset=utf-8",
+    },
+    body: JSON.stringify({
+      session_id: session.backendSessionId,
+      query,
+    }),
+  });
+
+  const golfers = normalizeGolfers(payload);
+  const diagnostics = payload.diagnostics || {};
+  if (!golfers.length && diagnostics.search_error) {
+    throw new Error(`Lookup backend: ${diagnostics.search_error}`);
+  }
+  return golfers;
 }
