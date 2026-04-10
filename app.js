@@ -523,6 +523,9 @@ async function refreshMemberList() {
     session.golfers = session.directoryGolfers;
     renderMembersTable();
     renderComparisonTable();
+    elements.memberSearchStatus.textContent = session.directoryGolfers.length
+      ? `Loaded ${session.directoryGolfers.length} club golfers for last-name search.`
+      : "Club member list was empty, so last-name search may not work right now.";
     if (!elements.memberSearch.value.trim()) {
       setStatus("");
     }
@@ -531,6 +534,8 @@ async function refreshMemberList() {
     session.golfers = [];
     renderMembersTable();
     renderComparisonTable();
+    elements.memberSearchStatus.textContent =
+      "Club member list was unavailable from GHIN, so last-name search may not work in this browser session.";
     setStatus("Member list unavailable right now");
   }
 }
@@ -708,9 +713,11 @@ async function enrichGolfersWithLastRoundPosted(golfers) {
         const latestRound = getLatestRoundDate(scores);
         if (latestRound) {
           session.lastRoundByGolferId[golferId] = formatDate(latestRound);
+        } else {
+          session.lastRoundByGolferId[golferId] = "No rounds returned";
         }
       } catch (error) {
-        session.lastRoundByGolferId[golferId] = "—";
+        session.lastRoundByGolferId[golferId] = "GHIN blocked";
       }
 
       return golfer;
