@@ -96,6 +96,22 @@ def get_golfer_club_name(golfer: dict) -> str:
     )
 
 
+def normalize_result_golfer(golfer: dict) -> dict:
+    golfer_copy = dict(golfer)
+    if not golfer_copy.get("ghin_number"):
+        golfer_copy["ghin_number"] = (
+            golfer_copy.get("id")
+            or golfer_copy.get("ID")
+            or golfer_copy.get("golfer_id")
+            or golfer_copy.get("local_number")
+        )
+    if not golfer_copy.get("handicap_index") and golfer_copy.get("handicap_index_display"):
+        golfer_copy["handicap_index"] = golfer_copy.get("handicap_index_display")
+    if not golfer_copy.get("display") and golfer_copy.get("handicap_index_display"):
+        golfer_copy["display"] = golfer_copy.get("handicap_index_display")
+    return golfer_copy
+
+
 def extract_scores(payload: object) -> list[dict]:
     if isinstance(payload, dict):
         scores = payload.get("scores")
@@ -392,7 +408,7 @@ def enrich_golfers_with_last_round(session: GhinSession, golfers: list[dict]) ->
     last_round_results = []
 
     for golfer in golfers:
-        golfer_copy = dict(golfer)
+        golfer_copy = normalize_result_golfer(golfer)
         golfer_id = str(golfer_copy.get("ghin_number") or golfer_copy.get("id") or "").strip()
         last_round_posted, last_round_error = (None, None)
         if golfer_id:

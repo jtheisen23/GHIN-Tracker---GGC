@@ -321,7 +321,7 @@ function renderMembersTable() {
   elements.membersTableBody.innerHTML = session.golfers
     .map((golfer) => {
       const name = `${golfer.first_name || ""} ${golfer.last_name || ""}`.trim() || golfer.player_name || "Unknown";
-      const index = golfer.handicap_index ?? golfer.display ?? "—";
+      const index = golfer.handicap_index ?? golfer.handicap_index_display ?? golfer.display ?? "—";
       const golferId = getGolferDisplayId(golfer);
       const golferKey = getGolferKey(golfer);
       const lastRoundPosted = getLastRoundPosted(golfer);
@@ -367,7 +367,7 @@ function renderComparisonTable() {
       const name = `${golfer.first_name || ""} ${golfer.last_name || ""}`.trim() || golfer.player_name || "Unknown";
       const golferId = getGolferDisplayId(golfer);
       const golferKey = getGolferKey(golfer);
-      const index = golfer.handicap_index ?? golfer.display ?? "—";
+      const index = golfer.handicap_index ?? golfer.handicap_index_display ?? golfer.display ?? "—";
       const lastRoundPosted = getLastRoundPosted(golfer);
       return `
         <tr>
@@ -697,6 +697,7 @@ function normalizeGolfers(payload) {
 function getGolferDisplayId(golfer) {
   return String(
     golfer.ghin_number ||
+      golfer.ID ||
       golfer.golfer_id ||
       golfer.id ||
       golfer.local_number ||
